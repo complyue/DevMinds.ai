@@ -46,6 +46,7 @@
   - .minds/skills/{skill}/(def|knowledge|lessons).md
   - .minds/tasks/{taskId}/(plan|wip|caveats).md
   - .tasklogs/{taskId}/events-YYYYMMDD.jsonl（原始消息与事件）
+  - 项目资产：工作区中其余文件与子目录（最终代码/文档/资源等，对应交付物与用户资产）
 - 读写规则：
   - 以文件为真相源；采用文件锁/队列，原子写；为并发子任务提供安全。
   - .minds 建议纳入版本控制；.tasklogs 建议 .gitignore。
