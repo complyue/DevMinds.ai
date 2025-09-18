@@ -1,0 +1,17 @@
+---
+description: in case agent needs to look at opencode's codebase
+globs:
+alwaysApply: false
+---
+# Take opencode.ai codebase as reference
+
+OPENCODE.ai from https://github.com/sst/opencode.git is checkout to `opencode/` folder besides workspace folder, 
+look into that directory for reference and copy their code for reuse as appropriate.
+
+../opencode/packages/opencode is their backend implementation
+../opencode/packages/tui is their TUI implementation
+../opencode/packages/web is the source of their product documentation as static web site
+../opencode/packages/app is their experimental/incomplete WebUI implementation
+
+Note that opencode uses `bun` as packager and Go as TUI implementation language, 
+while we stick to nodejs, TypeScript, and `pnpm`.
