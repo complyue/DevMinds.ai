@@ -37,7 +37,7 @@ Note:
     - TaskTreeNode { id, children[], hasMore?, meta }
     - Wip: markdown string
   - 策略：先“可视化事实”，UI 只读展示；后续再开放 Web 侧触发工具调用
-[/] 在 design/cases/ 目录下编写关键场景操作步骤设计（用于 TDD）
+[X] 在 design/cases/ 目录下编写关键场景操作步骤设计（用于 TDD）
   - 预期验证点（workspace_init.md）：
     - 若 .minds/ 与 .tasklogs/ 不存在，首次运行应创建
     - 若 .minds/config/providers.json 缺失，生成模板（不含密钥）

@@ -1,26 +1,62 @@
-# workspace_init
+# 工作区初始化（workspace_init）
 
-## 目的
-首次运行时，按 WorkspaceStructure.md 要求初始化工作区目录与基础文件。
+目的：定义首次运行时的文件/目录与配置模板创建规则，确保最小可用工作区。
 
 ## 前置条件
-- 选定的 workspace 根目录为空或缺少 .minds/ 与 .tasklogs/
-- 无 .minds/config/providers.json
+- 运行路径：项目根目录（含 .git/）
+- 首次运行或“未初始化”状态：
+  - 不存在 .minds/ 与 .tasklogs/
+  - 不存在 .minds/config/providers.json
+- 操作者具备对工作区写权限
 
-## 场景
-Given 目标工作区尚未初始化
-When 启动 devminds serve 或首次初始化流程
-Then
-- 创建 .minds/ 与 .tasklogs/ 目录
-- 若缺失，生成 .minds/config/providers.json 模板（不含任何密钥明文）
-- 提示 .gitignore 包含:
-  - .tasklogs/
-  - .tasklogs/**/*.jsonl
+## 操作步骤（TDD 场景）
+1) 启动应用（或执行初始化命令）
+   - 例如：devminds init（命令名示例，实际以实现为准）
+2) 应用检测并创建基础结构：
+   - 创建 .minds/ 与 .tasklogs/ 两个目录（若不存在）
+   - 生成 .minds/config/providers.json（模板，且不含任何密钥）
+3) 校验 .gitignore 规则存在或提示添加：
+   - 至少包含：
+     - .tasklogs/
+     - .tasklogs/**/*.jsonl
 
-## 断言
-- 目录与文件实际存在
-- providers.json 结构正确、无密钥
-- 控制台或 UI 有友好提示
+## 预期验证点
+- 目录存在：
+  - [ ] .minds/ 存在
+  - [ ] .tasklogs/ 存在
+- providers.json 模板：
+  - [ ] 路径：.minds/config/providers.json
+  - [ ] JSON 合法，可被解析
+  - [ ] 不包含密钥/令牌字段值（仅字段占位或为空）
+  - 建议模板示例：
+```json
+{
+  "providers": [
+    {
+      "name": "openai",
+      "models": ["gpt-4o-mini", "gpt-4.1"],
+      "config": {
+        "baseUrl": "",
+        "apiKey": ""
+      }
+    }
+  ],
+  "notes": "不要在此文件存储真实密钥；仅用于 UI 读取模型清单与连通性测试入口。"
+}
+```
+- .gitignore：
+  - [ ] 包含 .tasklogs/ 与 .tasklogs/**/*.jsonl
+  - 若缺失，应用应提示并提供一键追加或拷贝片段
 
-## 备注
-- 不做自动写入 .gitignore，仅提示
+## 负例与边界
+- 若 .minds/ 已存在但 providers.json 缺失：
+  - [ ] 仅生成 providers.json，不覆盖其他内容
+- 若 .git 目录不存在（非 Git 项目）：
+  - [ ] 允许继续初始化，但提示版本管理缺失的风险
+- 权限不足：
+  - [ ] 友好报错，并指向需要的目录权限
+
+## 检查命令（便于手测）
+- ls -la .minds .tasklogs
+- cat .minds/config/providers.json | jq .
+- grep -E "^\s*\.tasklogs/|^\s*\.tasklogs/\*\*/\*\.jsonl" .gitignore
