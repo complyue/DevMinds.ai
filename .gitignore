@@ -1,2 +1,18 @@
+# IDE (do manually track what needed)
+.codebuddy
+.trae
+.roo
+.kilocode
+.cursor
+.vscode
 
-.codebuddy/
+# Node
+node_modules/
+pnpm-lock.yaml
+
+# Build
+dist/
+*.log
+
+# DevMinds task history
+.tasklogs/

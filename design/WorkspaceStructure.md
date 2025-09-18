@@ -107,7 +107,6 @@ workspace-root/
   - 若 .minds/config/providers.json 缺失，可写入一份模板（仅包含结构与 env 名称占位）
   - 若 .gitignore 缺失 .tasklogs/ 规则，提示用户加入：
     - .tasklogs/
-    - .tasklogs/**\/*.jsonl
 - 任务创建建议（参考高层 CLI 行为，不在本文件定义命令语义）：
   - 新建任务时：分配 {taskId}，写入 .tasklogs/{taskId}/meta.json，初始化 .minds/tasks/{taskId}/(wip.md, plan.md, caveats.md)
 

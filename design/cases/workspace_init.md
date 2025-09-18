@@ -18,7 +18,6 @@
 3) 校验 .gitignore 规则存在或提示添加：
    - 至少包含：
      - .tasklogs/
-     - .tasklogs/**/*.jsonl
 
 ## 预期验证点
 - 目录存在：
@@ -45,7 +44,7 @@
 }
 ```
 - .gitignore：
-  - [ ] 包含 .tasklogs/ 与 .tasklogs/**/*.jsonl
+  - [ ] 包含 .tasklogs/
   - 若缺失，应用应提示并提供一键追加或拷贝片段
 
 ## 负例与边界
