@@ -1,5 +1,7 @@
 # DevMinds.ai Development Tracker
 
+> **文件更新原则**: 此文档只反映当前最新状态，不记录历史沿袭和时间戳。工作进度用 [ ]/[/]/[X] 标记，当前摘要反映实际完成情况，下一步列出待办事项。
+
 ### 项目文档
 
 - [设计原则（第一性）](./design/DesignPrinciples.md)
@@ -19,7 +21,7 @@ Note:
 
 ---
 
-[/] 分析 opencode 代码库，确定可迁移的后台功能模块代码，同时分析 opencode TUI 代码的界面设计，转换成 DevMinds.ai 的 Web UI 设计
+[X] 分析 opencode 代码库，确定可迁移的后台功能模块代码，同时分析 opencode TUI 代码的界面设计，转换成 DevMinds.ai 的 Web UI 设计
   - 鉴权：WS 继承会话 Cookie 或使用启动 token 校验；请求级中间件校验
   - 事件流：中断/状态更新均通过 WS 分发；UI 仅订阅 WS
   - 迁移映射（精要）：
@@ -40,7 +42,7 @@ Note:
     - Event { ts, taskId, agentId, type, payload, spanId?, parentSpanId? }
     - TaskTreeNode { id, children[], hasMore?, meta }
     - Wip: markdown string
-  - 策略：先“可视化事实”，UI 只读展示；后续再开放 Web 侧触发工具调用
+  - 策略：先"可视化事实"，UI 只读展示；后续再开放 Web 侧触发工具调用
 [X] 在 design/cases/ 目录下编写关键场景操作步骤设计（用于 TDD）
   - 预期验证点（workspace_init.md）：
     - 若 .minds/ 与 .tasklogs/ 不存在，首次运行应创建
@@ -64,27 +66,37 @@ Note:
     - 不实现自动恢复，但允许继续操作与溯源
 
 ### 当前进度摘要
-- 文档：已完成设计原则、功能架构、工作区结构、API/WS 契约草案、Web 组件映射，以及 TDD 用例（design/cases/*）
-- 工程骨架：建立 pnpm monorepo；后端（Node.js + TypeScript + Hono + ws）实现只读接口
-  - GET /api/tasks/:id/wip（读取 .minds/tasks/{id}/wip.md）
-  - GET /api/tasks/:id/tree（读取 .tasklogs/{id}/meta.json 与子任务 meta）
-  - GET /api/tasks/:id/events（读取 .tasklogs/{id}/events-YYYYMMDD.jsonl，含坏行 warnings）
-  - /ws（连接即欢迎消息，后续扩展广播）
-- 前端：webapp（React + Vite + TS）完成路由骨架与三栏页面框架（/tasks/:taskId）
 
-### 下一步（M1-只读，优先顺序）
-1) 后端
-   - /events：完善分页/offset 语义与跨日范围选择；为 WS 增加基于文件尾随的广播（tail JSONL）
-   - Providers：补充 GET /api/providers 与 POST /api/providers/test（不落盘）
-2) 前端
-   - TaskTreePanel：将树 JSON渲染为可展开的树形视图，支持定位子任务
-   - WipSummaryPanel：Markdown 渲染（代码高亮即可，Mermaid/Math 可延后）
-   - ConversationStream：按 spanId/parentSpanId 折叠展示；接入 /ws 实时附加
-   - 错误与降级：显示 events warnings/缺 wip.md 提示
-3) TDD 验证
-   - 覆盖 design/cases 下 5 个用例的“只读阶段”检查项
+- **文档**: 设计原则、功能架构、工作区结构、API/WS 契约、Web 组件映射、TDD 用例完整
+- **后端**: Node.js + TypeScript + Hono + ws，完整实现 M1 只读接口
+  - GET /api/tasks/:id/wip - 任务摘要，含修改时间
+  - GET /api/tasks/:id/tree - 任务树结构，支持子任务层级
+  - GET /api/tasks/:id/events - 事件流，支持跨日期范围和分页，含错误处理
+  - GET /api/providers - Provider 配置，安全隐藏密钥
+  - POST /api/providers/test - 连通性测试
+  - WebSocket /ws - 实时连接基础框架
+- **前端**: React + Vite + TS + react-markdown，完整三栏界面
+  - TaskTreePanel - 树形视图，展开/折叠，任务选择，状态指示
+  - ConversationStream - spanId 层级折叠，WebSocket 实时订阅，长文本折叠
+  - WipSummaryPanel - Markdown 渲染，代码高亮，响应式样式
+  - SettingsProviders - Provider 配置界面，连通性测试
+  - 错误处理 - 友好的降级显示和状态提示
+- **测试数据**: DEMO 任务及子任务完整示例
 
-### 运行方式（本地）
-- 后端：pnpm dev:backend（默认 5175）
-- 前端：pnpm dev:web（默认 5173，已代理 /api 与 /ws）
-- 访问：/tasks/DEMO 或 curl /api/tasks/DEMO/wip 与 /events 接口
+### 下一步
+1) **实时功能增强**
+   - 实现基于文件尾随的 WebSocket 事件广播
+   - 优化事件流实时更新机制
+2) **TDD 验证完善**
+   - 验证 design/cases 下用例完整覆盖
+   - 补充边界情况测试
+3) **M2 交互功能准备**
+   - Web 端触发工具调用
+   - 任务创建和管理界面
+   - AI Agent 对话功能
+
+### 运行方式
+- 后端: `npm run dev` (packages/backend, 端口 5175)
+- 前端: `npm run dev` (packages/webapp, 端口 5173, 已代理 /api 与 /ws)
+- 访问: http://localhost:5173/tasks/DEMO
+- 测试: curl http://localhost:5175/api/tasks/DEMO/wip

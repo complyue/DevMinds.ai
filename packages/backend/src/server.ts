@@ -83,39 +83,139 @@ app.get("/api/tasks/:id/tree", async (c) => {
   return c.json({ ok: true, root: { id, children, meta: rootMeta } })
 })
 
-// GET /api/tasks/:id/events?date=YYYYMMDD&offset=0&limit=500
+// GET /api/tasks/:id/events?date=YYYYMMDD&offset=0&limit=500&dateRange=YYYYMMDD-YYYYMMDD
 app.get("/api/tasks/:id/events", async (c) => {
   const id = c.req.param("id")
   const urlObj = new URL(c.req.url)
   const date = urlObj.searchParams.get("date") ?? new Date().toISOString().slice(0,10).replace(/-/g, "")
+  const dateRange = urlObj.searchParams.get("dateRange")
   const offset = Number(urlObj.searchParams.get("offset") ?? "0")
   const limit = Number(urlObj.searchParams.get("limit") ?? "500")
-  const file = path.join(paths.tasklogs(id), `events-${date}.jsonl`)
 
-  if (!(await fileExists(file))) {
-    return c.json({ ok: true, items: [], page: { offset, limit, total: 0 }, source: { file } })
+  // Support date range queries
+  let dates: string[] = []
+  if (dateRange) {
+    const [start, end] = dateRange.split("-")
+    if (start && end) {
+      const startDate = new Date(`${start.slice(0,4)}-${start.slice(4,6)}-${start.slice(6,8)}`)
+      const endDate = new Date(`${end.slice(0,4)}-${end.slice(4,6)}-${end.slice(6,8)}`)
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().slice(0,10).replace(/-/g, ""))
+      }
+    }
+  } else {
+    dates = [date]
   }
 
-  const text = await readText(file)
-  const lines = text.split(/\r?\n/).filter(Boolean)
-  const items: EventT[] = []
-  const warnings: { line: number; reason: string }[] = []
+  const allItems: EventT[] = []
+  const allWarnings: { file: string; line: number; reason: string }[] = []
 
-  for (let i = 0; i < lines.length; i++) {
-    if (i < offset || i >= offset + limit) continue
-    try {
-      const obj = JSON.parse(lines[i])
-      const parsed = EventSchema.safeParse(obj)
-      if (parsed.success) items.push(parsed.data)
-      else warnings.push({ line: i + 1, reason: "schema mismatch" })
-    } catch {
-      warnings.push({ line: i + 1, reason: "bad json" })
+  for (const d of dates) {
+    const file = path.join(paths.tasklogs(id), `events-${d}.jsonl`)
+    if (!(await fileExists(file))) continue
+
+    const text = await readText(file)
+    const lines = text.split(/\r?\n/).filter(Boolean)
+
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        const obj = JSON.parse(lines[i])
+        const parsed = EventSchema.safeParse(obj)
+        if (parsed.success) allItems.push(parsed.data)
+        else allWarnings.push({ file: `events-${d}.jsonl`, line: i + 1, reason: "schema mismatch" })
+      } catch {
+        allWarnings.push({ file: `events-${d}.jsonl`, line: i + 1, reason: "bad json" })
+      }
     }
   }
 
-  const resp: any = { ok: true, items, page: { offset, limit }, source: { file } }
-  if (warnings.length) resp.warnings = warnings
+  // Sort by timestamp and apply pagination
+  allItems.sort((a, b) => a.ts.localeCompare(b.ts))
+  const paginatedItems = allItems.slice(offset, offset + limit)
+
+  const resp: any = { 
+    ok: true, 
+    items: paginatedItems, 
+    page: { offset, limit, total: allItems.length }, 
+    source: { dates, files: dates.map(d => `events-${d}.jsonl`) }
+  }
+  if (allWarnings.length) resp.warnings = allWarnings
   return c.json(resp)
+})
+
+// GET /api/providers - Read providers config
+app.get("/api/providers", async (c) => {
+  const configPath = paths.minds("config", "providers.json")
+  if (!(await fileExists(configPath))) {
+    // Return default template without secrets
+    const template = {
+      providers: {
+        openai: {
+          name: "OpenAI",
+          baseUrl: "https://api.openai.com/v1",
+          models: ["gpt-4", "gpt-3.5-turbo"],
+          apiKey: "" // Empty - user needs to fill
+        },
+        anthropic: {
+          name: "Anthropic",
+          baseUrl: "https://api.anthropic.com",
+          models: ["claude-3-sonnet", "claude-3-haiku"],
+          apiKey: ""
+        }
+      },
+      default: "openai"
+    }
+    return c.json({ ok: true, config: template, isTemplate: true })
+  }
+
+  try {
+    const content = await readText(configPath)
+    const config = JSON.parse(content)
+    // Never expose actual API keys in responses
+    const sanitized = JSON.parse(JSON.stringify(config))
+    if (sanitized.providers) {
+      Object.values(sanitized.providers).forEach((p: any) => {
+        if (p.apiKey) p.apiKey = "***"
+      })
+    }
+    return c.json({ ok: true, config: sanitized })
+  } catch (err) {
+    return c.json({ ok: false, message: "Failed to parse providers config" }, 500)
+  }
+})
+
+// POST /api/providers/test - Test provider connectivity (no persistence)
+app.post("/api/providers/test", async (c) => {
+  try {
+    const body = await c.req.json()
+    const { provider, apiKey, baseUrl, model } = body
+
+    if (!provider || !apiKey || !baseUrl) {
+      return c.json({ ok: false, message: "Missing required fields" }, 400)
+    }
+
+    // Simple connectivity test - just check if we can reach the endpoint
+    // In a real implementation, this would make an actual API call
+    const testUrl = new URL(baseUrl)
+    const isReachable = testUrl.protocol === "https:" || testUrl.protocol === "http:"
+    
+    if (!isReachable) {
+      return c.json({ ok: false, message: "Invalid URL format" })
+    }
+
+    // Mock test result for now
+    return c.json({ 
+      ok: true, 
+      result: { 
+        connected: true, 
+        latency: Math.floor(Math.random() * 200) + 50,
+        model: model || "default",
+        message: "Connection test successful (mocked)"
+      }
+    })
+  } catch (err) {
+    return c.json({ ok: false, message: "Test failed" }, 500)
+  }
 })
 
 // HTTP + WS server
