@@ -65,14 +65,14 @@
 
 ## 6. Web 服务与安全
 - Fastify 路由：
-  - /api/workspace, /api/tasks, /api/skills, /api/providers, /api/agent, /api/events (SSE/WS)
+  - /api/workspace, /api/tasks, /api/skills, /api/providers, /api/agent, /api/events (WS/SSE)
 - 鉴权：
   - CLI：Bearer Token（启动生成或从 env 读取）
   - Web 浏览器：基于会话的 Cookie 鉴权（未鉴权重定向到登录/鉴权页面；WS/SSE 连接继承会话 Cookie）
   - 便捷直达：服务启动时在控制台打印带 token 的直达链接（例如 http://localhost:5173/?token=<TOKEN>）；首次点击将完成一次性鉴权并写入 session，后续访问依赖 session cookie
   - 请求级中间件校验；事件流通道也需校验
 - 事件流：
-  - WS 为默认（实时双向、状态更丰富），SSE 作为降级选项（在极少数代理/受限环境下使用）
+  - WS 为默认（实时双向、状态更丰富），SSE 作为降级选项（在极少数代理/受限环境下使用），暂不编码，实现留待未来扩展
   - 中断机制：通过 WS 分发“中断/停止”信号与状态更新；Agent 必须在流式响应与工具调用之间的检查点响应中断
 - 静态资源：Vite 构建产物；单仓同服务
 
