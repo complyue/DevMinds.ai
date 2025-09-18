@@ -14,20 +14,25 @@ endpoints:
     baseUrl: https://api.anthropic.com
     defaultEnvVar: ANTHROPIC_AUTH_TOKEN
 
+  zai:
+    apiType: anthropic
+    baseUrl: https://api.z.ai/api/anthropic
+    defaultEnvVar: ZAI_API_KEY
+
+  moonshotai:
+    apiType: anthropic
+    baseUrl: https://api.moonshot.ai/anthropic
+    defaultEnvVar: MOONSHOT_API_KEY
+
   # Chinese providers with confirmed endpoints
   zhipuai:
     apiType: anthropic
     baseUrl: https://open.bigmodel.cn/api/anthropic
     defaultEnvVar: ZHIPUAI_API_KEY
 
-  zai:
-    apiType: openai
-    baseUrl: https://api.z.ai/api/paas/v4/
-    defaultEnvVar: ZAI_API_KEY
-
-  deepseek:
-    apiType: openai
-    baseUrl: https://api.deepseek.com/v1
-    defaultEnvVar: DEEPSEEK_API_KEY
+  moonshotai-cn:
+    apiType: anthropic
+    baseUrl: https://api.moonshot.cn/anthropic
+    defaultEnvVar: MOONSHOT_API_KEY
 
   # Additional confirmed providers can be added here as needed
