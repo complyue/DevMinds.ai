@@ -9,10 +9,12 @@
     "build:web": "pnpm --filter @devminds/webapp build",
     "preview:web": "pnpm --filter @devminds/webapp preview",
     "typecheck": "pnpm -r run typecheck",
-    "lint": "pnpm -r run lint"
+    "lint": "pnpm -r run lint",
+    "update-models": "node scripts/update-models.js"
   },
   "devDependencies": {
     "prettier": "3.6.2",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "js-yaml": "^4.1.0"
   }
 }

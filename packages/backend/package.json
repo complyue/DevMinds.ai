@@ -14,10 +14,12 @@
     "@hono/node-server": "1.13.8",
     "hono": "4.7.10",
     "ws": "8.18.0",
-    "zod": "3.23.8"
+    "zod": "3.23.8",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "tsx": "4.19.2",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "@types/js-yaml": "^4.0.9"
   }
 }

@@ -1,0 +1,33 @@
+# API Endpoints Configuration - Whitelist of known providers
+# This file defines the correct apiType and baseUrl for each provider
+# Only includes providers with confirmed accurate information
+
+endpoints:
+  # Major providers with confirmed API endpoints
+  openai:
+    apiType: openai
+    baseUrl: https://api.openai.com/v1
+    defaultEnvVar: OPENAI_API_KEY
+
+  anthropic:
+    apiType: anthropic
+    baseUrl: https://api.anthropic.com
+    defaultEnvVar: ANTHROPIC_AUTH_TOKEN
+
+  # Chinese providers with confirmed endpoints
+  zhipuai:
+    apiType: anthropic
+    baseUrl: https://open.bigmodel.cn/api/anthropic
+    defaultEnvVar: ZHIPUAI_API_KEY
+
+  zai:
+    apiType: openai
+    baseUrl: https://api.z.ai/api/paas/v4/
+    defaultEnvVar: ZAI_API_KEY
+
+  deepseek:
+    apiType: openai
+    baseUrl: https://api.deepseek.com/v1
+    defaultEnvVar: DEEPSEEK_API_KEY
+
+  # Additional confirmed providers can be added here as needed
