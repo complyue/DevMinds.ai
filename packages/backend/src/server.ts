@@ -1,13 +1,13 @@
-import { Hono } from "hono";
-import { serve } from "@hono/node-server";
-import { z } from "zod";
-import { createServer } from "http";
-import { WebSocketServer, WebSocket } from "ws";
-import { promises as fs } from "fs";
-import path from "path";
-import url from "url";
-import { watch } from "fs";
-import * as yaml from "js-yaml";
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { z } from 'zod';
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import { promises as fs } from 'fs';
+import path from 'path';
+import url from 'url';
+import { watch } from 'fs';
+import * as yaml from 'js-yaml';
 
 const app = new Hono();
 
@@ -16,41 +16,41 @@ const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Resolve runtime root (repo root). Server runs from packages/backend
-const repoRoot = path.resolve(process.cwd(), "../../");
+const repoRoot = path.resolve(process.cwd(), '../../');
 
 const paths = {
-  minds: (...p: string[]) => path.join(repoRoot, ".minds", ...p),
-  tasklogs: (...p: string[]) => path.join(repoRoot, ".tasklogs", ...p),
+  minds: (...p: string[]) => path.join(repoRoot, '.minds', ...p),
+  tasklogs: (...p: string[]) => path.join(repoRoot, '.tasklogs', ...p),
 };
 
 // Load provider template from YAML
 async function loadProviderTemplate() {
-  const templatePath = path.join(__dirname, "../config/known-providers.yaml");
+  const templatePath = path.join(__dirname, '../config/known-providers.yaml');
   try {
     if (await fileExists(templatePath)) {
       const yamlContent = await readText(templatePath);
       return yaml.load(yamlContent) as any;
     }
   } catch (error) {
-    console.warn("Failed to load provider template:", error);
+    console.warn('Failed to load provider template:', error);
   }
 
   // Fallback to minimal template if YAML loading fails
   return {
     providers: {
       openai: {
-        name: "OpenAI",
-        apiType: "openai",
-        baseUrl: "https://api.openai.com/v1",
-        models: ["gpt-5", "gpt-5-mini", "gpt-5-nano"],
-        apiKeyEnvVar: "OPENAI_API_KEY",
+        name: 'OpenAI',
+        apiType: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'],
+        apiKeyEnvVar: 'OPENAI_API_KEY',
       },
       anthropic: {
-        name: "Anthropic",
-        apiType: "anthropic",
-        baseUrl: "https://api.anthropic.com",
-        models: ["claude-4-sonnet"],
-        apiKeyEnvVar: "ANTHROPIC_AUTH_TOKEN",
+        name: 'Anthropic',
+        apiType: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        models: ['claude-4-sonnet'],
+        apiKeyEnvVar: 'ANTHROPIC_AUTH_TOKEN',
       },
     },
   };
@@ -67,7 +67,7 @@ async function fileExists(p: string) {
 }
 
 async function readText(p: string) {
-  return fs.readFile(p, "utf8");
+  return fs.readFile(p, 'utf8');
 }
 
 const EventSchema = z.object({
@@ -82,11 +82,11 @@ const EventSchema = z.object({
 type EventT = z.infer<typeof EventSchema>;
 
 // GET /api/tasks/:id/wip
-app.get("/api/tasks/:id/wip", async (c) => {
-  const id = c.req.param("id");
-  const p = paths.minds("tasks", id, "wip.md");
+app.get('/api/tasks/:id/wip', async (c) => {
+  const id = c.req.param('id');
+  const p = paths.minds('tasks', id, 'wip.md');
   if (!(await fileExists(p))) {
-    return c.json({ ok: false, message: "wip not found" }, 404);
+    return c.json({ ok: false, message: 'wip not found' }, 404);
   }
   const content = await readText(p);
   let mtime: string | undefined;
@@ -99,8 +99,8 @@ app.get("/api/tasks/:id/wip", async (c) => {
 
 // GET /api/tasks/:id/tree
 // Minimal: read .tasklogs/{id}/meta.json and subtasks/*/meta.json
-app.get("/api/tasks/:id/tree", async (c) => {
-  const id = c.req.param("id");
+app.get('/api/tasks/:id/tree', async (c) => {
+  const id = c.req.param('id');
   const rootDir = paths.tasklogs(id);
   if (!(await fileExists(rootDir))) {
     return c.json({
@@ -108,7 +108,7 @@ app.get("/api/tasks/:id/tree", async (c) => {
       root: { id, children: [], meta: { missing: true } },
     });
   }
-  const rootMetaPath = path.join(rootDir, "meta.json");
+  const rootMetaPath = path.join(rootDir, 'meta.json');
   let rootMeta: any = {};
   if (await fileExists(rootMetaPath)) {
     try {
@@ -117,14 +117,14 @@ app.get("/api/tasks/:id/tree", async (c) => {
       rootMeta = { parseError: true };
     }
   }
-  const subtasksDir = path.join(rootDir, "subtasks");
+  const subtasksDir = path.join(rootDir, 'subtasks');
   let children: any[] = [];
   if (await fileExists(subtasksDir)) {
     const subIds = (await fs.readdir(subtasksDir, { withFileTypes: true }))
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
     for (const sid of subIds) {
-      const smetaPath = path.join(subtasksDir, sid, "meta.json");
+      const smetaPath = path.join(subtasksDir, sid, 'meta.json');
       let smeta: any = {};
       if (await fileExists(smetaPath)) {
         try {
@@ -140,33 +140,24 @@ app.get("/api/tasks/:id/tree", async (c) => {
 });
 
 // GET /api/tasks/:id/events?date=YYYYMMDD&offset=0&limit=500&dateRange=YYYYMMDD-YYYYMMDD
-app.get("/api/tasks/:id/events", async (c) => {
-  const id = c.req.param("id");
+app.get('/api/tasks/:id/events', async (c) => {
+  const id = c.req.param('id');
   const urlObj = new URL(c.req.url);
   const date =
-    urlObj.searchParams.get("date") ??
-    new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const dateRange = urlObj.searchParams.get("dateRange");
-  const offset = Number(urlObj.searchParams.get("offset") ?? "0");
-  const limit = Number(urlObj.searchParams.get("limit") ?? "500");
+    urlObj.searchParams.get('date') ?? new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const dateRange = urlObj.searchParams.get('dateRange');
+  const offset = Number(urlObj.searchParams.get('offset') ?? '0');
+  const limit = Number(urlObj.searchParams.get('limit') ?? '500');
 
   // Support date range queries
   let dates: string[] = [];
   if (dateRange) {
-    const [start, end] = dateRange.split("-");
+    const [start, end] = dateRange.split('-');
     if (start && end) {
-      const startDate = new Date(
-        `${start.slice(0, 4)}-${start.slice(4, 6)}-${start.slice(6, 8)}`,
-      );
-      const endDate = new Date(
-        `${end.slice(0, 4)}-${end.slice(4, 6)}-${end.slice(6, 8)}`,
-      );
-      for (
-        let d = new Date(startDate);
-        d <= endDate;
-        d.setDate(d.getDate() + 1)
-      ) {
-        dates.push(d.toISOString().slice(0, 10).replace(/-/g, ""));
+      const startDate = new Date(`${start.slice(0, 4)}-${start.slice(4, 6)}-${start.slice(6, 8)}`);
+      const endDate = new Date(`${end.slice(0, 4)}-${end.slice(4, 6)}-${end.slice(6, 8)}`);
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().slice(0, 10).replace(/-/g, ''));
       }
     }
   } else {
@@ -192,13 +183,13 @@ app.get("/api/tasks/:id/events", async (c) => {
           allWarnings.push({
             file: `events-${d}.jsonl`,
             line: i + 1,
-            reason: "schema mismatch",
+            reason: 'schema mismatch',
           });
       } catch {
         allWarnings.push({
           file: `events-${d}.jsonl`,
           line: i + 1,
-          reason: "bad json",
+          reason: 'bad json',
         });
       }
     }
@@ -219,39 +210,36 @@ app.get("/api/tasks/:id/events", async (c) => {
 });
 
 // GET /api/providers - Read providers config
-app.get("/api/providers", async (c) => {
+app.get('/api/providers', async (c) => {
   // Always use built-in provider configuration
   const template = await loadProviderTemplate();
   return c.json({ ok: true, config: template, isBuiltIn: true });
 });
 
 // POST /api/providers/test - Test provider connectivity (no persistence)
-app.post("/api/providers/test", async (c) => {
+app.post('/api/providers/test', async (c) => {
   try {
     const body = await c.req.json();
     const { providerId, model } = body;
 
     if (!providerId) {
-      return c.json({ ok: false, message: "Missing providerId" }, 400);
+      return c.json({ ok: false, message: 'Missing providerId' }, 400);
     }
 
     // Use built-in provider configuration
     const template = await loadProviderTemplate();
     const provider = template.providers?.[providerId];
     if (!provider) {
-      return c.json(
-        { ok: false, message: `Provider ${providerId} not found` },
-        404,
-      );
+      return c.json({ ok: false, message: `Provider ${providerId} not found` }, 404);
     }
 
     // Get API key from environment variable (with defaults based on apiType)
     const getDefaultEnvVar = (apiType: string) => {
       switch (apiType) {
-        case "openai":
-          return "OPENAI_API_KEY";
-        case "anthropic":
-          return "ANTHROPIC_AUTH_TOKEN";
+        case 'openai':
+          return 'OPENAI_API_KEY';
+        case 'anthropic':
+          return 'ANTHROPIC_AUTH_TOKEN';
         default:
           return null;
       }
@@ -276,11 +264,10 @@ app.post("/api/providers/test", async (c) => {
     // Simple connectivity test - just check if we can reach the endpoint
     try {
       const testUrl = new URL(provider.baseUrl);
-      const isReachable =
-        testUrl.protocol === "https:" || testUrl.protocol === "http:";
+      const isReachable = testUrl.protocol === 'https:' || testUrl.protocol === 'http:';
 
       if (!isReachable) {
-        return c.json({ ok: false, message: "Invalid URL format" });
+        return c.json({ ok: false, message: 'Invalid URL format' });
       }
 
       // Mock test result for now - in real implementation would make actual API call
@@ -296,10 +283,10 @@ app.post("/api/providers/test", async (c) => {
         },
       });
     } catch (err) {
-      return c.json({ ok: false, message: "Invalid baseUrl" }, 400);
+      return c.json({ ok: false, message: 'Invalid baseUrl' }, 400);
     }
   } catch (err) {
-    return c.json({ ok: false, message: "Test failed" }, 500);
+    return c.json({ ok: false, message: 'Test failed' }, 500);
   }
 });
 
@@ -307,12 +294,12 @@ app.post("/api/providers/test", async (c) => {
 const httpServer = createServer((req, res) => {
   // Delegate to Hono
   const handler = app.fetch as any;
-  const urlStr = req.url ? `http://localhost${req.url}` : "http://localhost/";
+  const urlStr = req.url ? `http://localhost${req.url}` : 'http://localhost/';
   const request = new Request(urlStr, {
     method: req.method,
     headers: req.headers as any,
-    body: ["GET", "HEAD"].includes(req.method ?? "") ? undefined : (req as any),
-    duplex: ["GET", "HEAD"].includes(req.method ?? "") ? undefined : "half",
+    body: ['GET', 'HEAD'].includes(req.method ?? '') ? undefined : (req as any),
+    duplex: ['GET', 'HEAD'].includes(req.method ?? '') ? undefined : 'half',
   } as RequestInit);
   handler(request)
     .then((r: Response) => {
@@ -332,11 +319,11 @@ const httpServer = createServer((req, res) => {
     })
     .catch(() => {
       res.statusCode = 500;
-      res.end("internal error");
+      res.end('internal error');
     });
 });
 
-const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
 // File monitoring for real-time event broadcasting
 const fileWatchers = new Map<string, any>();
@@ -364,19 +351,19 @@ async function monitorEventFile(filePath: string, taskId: string) {
     filePositions.set(filePath, stats.size);
 
     const watcher = watch(filePath, async (eventType) => {
-      if (eventType === "change") {
+      if (eventType === 'change') {
         try {
           const currentStats = await fs.stat(filePath);
           const lastPosition = filePositions.get(filePath) || 0;
 
           if (currentStats.size > lastPosition) {
             // Read new content from last position
-            const fileHandle = await fs.open(filePath, "r");
+            const fileHandle = await fs.open(filePath, 'r');
             const buffer = Buffer.alloc(currentStats.size - lastPosition);
             await fileHandle.read(buffer, 0, buffer.length, lastPosition);
             await fileHandle.close();
 
-            const newContent = buffer.toString("utf8");
+            const newContent = buffer.toString('utf8');
             const newLines = newContent.split(/\r?\n/).filter(Boolean);
 
             // Parse and broadcast new events
@@ -387,7 +374,7 @@ async function monitorEventFile(filePath: string, taskId: string) {
                 if (parsed.success) {
                   broadcast({
                     ts: new Date().toISOString(),
-                    type: "message.appended",
+                    type: 'message.appended',
                     payload: parsed.data,
                   });
                 }
@@ -429,7 +416,7 @@ async function initializeFileMonitoring() {
         try {
           const files = await fs.readdir(taskPath);
           for (const file of files) {
-            if (file.startsWith("events-") && file.endsWith(".jsonl")) {
+            if (file.startsWith('events-') && file.endsWith('.jsonl')) {
               const filePath = path.join(taskPath, file);
               await monitorEventFile(filePath, taskId);
             }
@@ -440,26 +427,26 @@ async function initializeFileMonitoring() {
       }
     }
   } catch (err) {
-    console.error("Failed to initialize file monitoring:", err);
+    console.error('Failed to initialize file monitoring:', err);
   }
 }
 
 // WebSocket connection handling
-wss.on("connection", (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket) => {
   ws.send(
     JSON.stringify({
       ts: new Date().toISOString(),
-      type: "welcome",
-      payload: { ok: true, message: "WebSocket connected" },
+      type: 'welcome',
+      payload: { ok: true, message: 'WebSocket connected' },
     }),
   );
 
-  ws.on("close", () => {
-    console.log("WebSocket client disconnected");
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
   });
 
-  ws.on("error", (err: unknown) => {
-    console.error("WebSocket error:", err);
+  ws.on('error', (err: unknown) => {
+    console.error('WebSocket error:', err);
   });
 });
 

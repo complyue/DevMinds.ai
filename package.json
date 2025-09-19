@@ -6,8 +6,9 @@
     "build:web": "pnpm --filter @devminds/webapp build",
     "dev:backend": "pnpm --filter @devminds/backend dev",
     "dev:web": "pnpm --filter @devminds/webapp dev",
-    "format": "pnpm run format:manifests && pnpm -r --parallel --workspace-concurrency=1 run format",
+    "format": "pnpm run format:manifests || true && pnpm run format:rootdocs || true && pnpm -r --parallel --workspace-concurrency=1 run format || true",
     "format:manifests": "sort-package-json package.json packages/*/package.json",
+    "format:rootdocs": "scripts/format-root-docs.sh",
     "lint": "pnpm -r run lint",
     "preview:web": "pnpm --filter @devminds/webapp preview",
     "typecheck": "pnpm -r run typecheck",
@@ -19,6 +20,7 @@
     "*.md": "prettier --write --ignore-unknown",
     "*.mdx": "prettier --write --ignore-unknown",
     "docs/**/*.{md,mdx}": "prettier --write --ignore-unknown",
+    "design/**/*.{md,mdx}": "prettier --write --ignore-unknown",
     "packages/*/src/**/*.json": [
       "sort-json --deep --ignore-case --order asc",
       "prettier --write --ignore-unknown"

@@ -1,3 +1,13 @@
 #!/bin/sh
-# Pre-commit: format staged TS files via lint-staged
-pnpm exec lint-staged
+set -e
+
+# Ensure Node/pnpm are on PATH inside Git hook (non-login shells don't source your rc files)
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+fi
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm exec lint-staged --verbose
+else
+  npx --no-install lint-staged --verbose
+fi

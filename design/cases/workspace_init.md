@@ -3,6 +3,7 @@
 目的：定义首次运行时的文件/目录与配置模板创建规则，确保最小可用工作区。
 
 ## 前置条件
+
 - 运行路径：项目根目录（含 .git/）
 - 首次运行或“未初始化”状态：
   - 不存在 .minds/ 与 .tasklogs/
@@ -10,16 +11,18 @@
 - 操作者具备对工作区写权限
 
 ## 操作步骤（TDD 场景）
-1) 启动应用（或执行初始化命令）
+
+1. 启动应用（或执行初始化命令）
    - 例如：devminds init（命令名示例，实际以实现为准）
-2) 应用检测并创建基础结构：
+2. 应用检测并创建基础结构：
    - 创建 .minds/ 与 .tasklogs/ 两个目录（若不存在）
    - 生成 .minds/config/providers.json（模板，且不含任何密钥）
-3) 校验 .gitignore 规则存在或提示添加：
+3. 校验 .gitignore 规则存在或提示添加：
    - 至少包含：
      - .tasklogs/
 
 ## 预期验证点
+
 - 目录存在：
   - [ ] .minds/ 存在
   - [ ] .tasklogs/ 存在
@@ -28,6 +31,7 @@
   - [ ] JSON 合法，可被解析
   - [ ] 不包含密钥/令牌字段值（仅字段占位或为空）
   - 建议模板示例：
+
 ```json
 {
   "providers": [
@@ -43,11 +47,13 @@
   "notes": "不要在此文件存储真实密钥；仅用于 UI 读取模型清单与连通性测试入口。"
 }
 ```
+
 - .gitignore：
   - [ ] 包含 .tasklogs/
   - 若缺失，应用应提示并提供一键追加或拷贝片段
 
 ## 负例与边界
+
 - 若 .minds/ 已存在但 providers.json 缺失：
   - [ ] 仅生成 providers.json，不覆盖其他内容
 - 若 .git 目录不存在（非 Git 项目）：
@@ -56,6 +62,9 @@
   - [ ] 友好报错，并指向需要的目录权限
 
 ## 检查命令（便于手测）
-- ls -la .minds .tasklogs
-- cat .minds/config/providers.json | jq .
-- grep -E "^\s*\.tasklogs/|^\s*\.tasklogs/\*\*/\*\.jsonl" .gitignore
+
+```bash
+ls -la .minds .tasklogs
+cat .minds/config/providers.json | jq .
+grep -E "^\s*\.tasklogs/|^\s*\.tasklogs/\*\*/\*\.jsonl" .gitignore
+```

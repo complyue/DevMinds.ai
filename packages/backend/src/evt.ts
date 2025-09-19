@@ -10,7 +10,7 @@
  * - EndOfStream sentinel signals termination of streams
  */
 
-export const EndOfStream = Symbol("EndOfStream");
+export const EndOfStream = Symbol('EndOfStream');
 export type EOS = typeof EndOfStream;
 
 /**
@@ -176,9 +176,7 @@ export class EventSink<T> {
    *
    * The producer should publish into this sink and eventually publish EndOfStream.
    */
-  async *run_producer(
-    producer: Promise<unknown>,
-  ): AsyncGenerator<T, void, void> {
+  async *run_producer(producer: Promise<unknown>): AsyncGenerator<T, void, void> {
     let nxtP = this.chan.nextPromise;
 
     // We loop, racing "next event" vs "producer completion"
@@ -186,17 +184,17 @@ export class EventSink<T> {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const nextEventP = Promise.resolve(nxtP).then(([ev, nextP]) => ({
-        kind: "event" as const,
+        kind: 'event' as const,
         ev,
         nextP,
       }));
       const prodDoneP = Promise.resolve(producer).then(() => ({
-        kind: "done" as const,
+        kind: 'done' as const,
       }));
 
       const winner = await Promise.race([nextEventP, prodDoneP]);
 
-      if (winner.kind === "event") {
+      if (winner.kind === 'event') {
         if (winner.ev === EndOfStream) return;
         yield winner.ev as T;
         nxtP = winner.nextP;

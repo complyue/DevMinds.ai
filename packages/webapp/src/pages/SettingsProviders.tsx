@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 type Provider = {
   name: string;
@@ -27,21 +27,16 @@ function ProviderConfigForm({
 }: {
   providerId: string;
   provider: Provider;
-  onTest: (
-    providerId: string,
-    apiKey: string,
-    baseUrl: string,
-    model: string,
-  ) => void;
+  onTest: (providerId: string, apiKey: string, baseUrl: string, model: string) => void;
 }) {
-  const [apiKey, setApiKey] = useState("");
-  const [selectedModel, setSelectedModel] = useState(provider.models[0] || "");
+  const [apiKey, setApiKey] = useState('');
+  const [selectedModel, setSelectedModel] = useState(provider.models[0] || '');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const handleTest = async () => {
     if (!apiKey.trim()) {
-      setTestResult({ connected: false, message: "请输入 API Key" });
+      setTestResult({ connected: false, message: '请输入 API Key' });
       return;
     }
 
@@ -49,9 +44,9 @@ function ProviderConfigForm({
     setTestResult(null);
 
     try {
-      const response = await fetch("/api/providers/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch('/api/providers/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: providerId,
           apiKey: apiKey.trim(),
@@ -66,11 +61,11 @@ function ProviderConfigForm({
       } else {
         setTestResult({
           connected: false,
-          message: result.message || "测试失败",
+          message: result.message || '测试失败',
         });
       }
     } catch (err) {
-      setTestResult({ connected: false, message: "网络错误" });
+      setTestResult({ connected: false, message: '网络错误' });
     } finally {
       setTesting(false);
     }
@@ -79,7 +74,7 @@ function ProviderConfigForm({
   return (
     <div
       style={{
-        border: "1px solid #e1e4e8",
+        border: '1px solid #e1e4e8',
         borderRadius: 6,
         padding: 16,
         marginBottom: 16,
@@ -90,7 +85,7 @@ function ProviderConfigForm({
       <div style={{ marginBottom: 12 }}>
         <label
           style={{
-            display: "block",
+            display: 'block',
             marginBottom: 4,
             fontSize: 14,
             fontWeight: 500,
@@ -103,12 +98,12 @@ function ProviderConfigForm({
           value={provider.baseUrl}
           disabled
           style={{
-            width: "100%",
+            width: '100%',
             padding: 8,
-            border: "1px solid #d1d5da",
+            border: '1px solid #d1d5da',
             borderRadius: 4,
-            backgroundColor: "#f6f8fa",
-            color: "#586069",
+            backgroundColor: '#f6f8fa',
+            color: '#586069',
           }}
         />
       </div>
@@ -116,7 +111,7 @@ function ProviderConfigForm({
       <div style={{ marginBottom: 12 }}>
         <label
           style={{
-            display: "block",
+            display: 'block',
             marginBottom: 4,
             fontSize: 14,
             fontWeight: 500,
@@ -130,13 +125,13 @@ function ProviderConfigForm({
           onChange={(e) => setApiKey(e.target.value)}
           placeholder="输入您的 API Key"
           style={{
-            width: "100%",
+            width: '100%',
             padding: 8,
-            border: "1px solid #d1d5da",
+            border: '1px solid #d1d5da',
             borderRadius: 4,
           }}
         />
-        <div style={{ fontSize: 12, color: "#586069", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: '#586069', marginTop: 4 }}>
           API Key 不会被保存，仅用于连通性测试
         </div>
       </div>
@@ -144,7 +139,7 @@ function ProviderConfigForm({
       <div style={{ marginBottom: 12 }}>
         <label
           style={{
-            display: "block",
+            display: 'block',
             marginBottom: 4,
             fontSize: 14,
             fontWeight: 500,
@@ -156,9 +151,9 @@ function ProviderConfigForm({
           value={selectedModel}
           onChange={(e) => setSelectedModel(e.target.value)}
           style={{
-            width: "100%",
+            width: '100%',
             padding: 8,
-            border: "1px solid #d1d5da",
+            border: '1px solid #d1d5da',
             borderRadius: 4,
           }}
         >
@@ -170,30 +165,30 @@ function ProviderConfigForm({
         </select>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={handleTest}
           disabled={testing || !apiKey.trim()}
           style={{
-            padding: "8px 16px",
-            backgroundColor: testing ? "#f6f8fa" : "#0366d6",
-            color: testing ? "#586069" : "white",
-            border: "none",
+            padding: '8px 16px',
+            backgroundColor: testing ? '#f6f8fa' : '#0366d6',
+            color: testing ? '#586069' : 'white',
+            border: 'none',
             borderRadius: 4,
-            cursor: testing ? "not-allowed" : "pointer",
+            cursor: testing ? 'not-allowed' : 'pointer',
           }}
         >
-          {testing ? "测试中..." : "测试连接"}
+          {testing ? '测试中...' : '测试连接'}
         </button>
 
         {testResult && (
           <div
             style={{
               fontSize: 14,
-              color: testResult.connected ? "#28a745" : "#d73a49",
+              color: testResult.connected ? '#28a745' : '#d73a49',
             }}
           >
-            {testResult.connected ? "✓" : "✗"} {testResult.message}
+            {testResult.connected ? '✓' : '✗'} {testResult.message}
             {testResult.latency && ` (${testResult.latency}ms)`}
           </div>
         )}
@@ -208,7 +203,7 @@ export default function SettingsProviders() {
   const [isTemplate, setIsTemplate] = useState(false);
 
   useEffect(() => {
-    fetch("/api/providers")
+    fetch('/api/providers')
       .then((r) => r.json())
       .then((res) => {
         if (res.ok) {
@@ -220,12 +215,7 @@ export default function SettingsProviders() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleTest = (
-    providerId: string,
-    apiKey: string,
-    baseUrl: string,
-    model: string,
-  ) => {
+  const handleTest = (providerId: string, apiKey: string, baseUrl: string, model: string) => {
     // Test function is handled within ProviderConfigForm
   };
 
@@ -241,7 +231,7 @@ export default function SettingsProviders() {
   return (
     <div style={{ padding: 16, maxWidth: 800 }}>
       <div style={{ marginBottom: 24 }}>
-        <Link to="/" style={{ color: "#0366d6", textDecoration: "none" }}>
+        <Link to="/" style={{ color: '#0366d6', textDecoration: 'none' }}>
           ← 返回首页
         </Link>
       </div>
@@ -251,23 +241,22 @@ export default function SettingsProviders() {
       {isTemplate && (
         <div
           style={{
-            backgroundColor: "#fff3cd",
-            border: "1px solid #ffeaa7",
+            backgroundColor: '#fff3cd',
+            border: '1px solid #ffeaa7',
             borderRadius: 4,
             padding: 12,
             marginBottom: 16,
             fontSize: 14,
           }}
         >
-          <strong>注意：</strong> 当前显示的是默认配置模板。请在项目根目录的{" "}
+          <strong>注意：</strong> 当前显示的是默认配置模板。请在项目根目录的{' '}
           <code>.minds/config/providers.json</code> 中配置您的 API Keys。
         </div>
       )}
 
       <div style={{ marginBottom: 24 }}>
-        <p style={{ color: "#586069", marginBottom: 16 }}>
-          配置和测试 AI Provider 连接。API Keys
-          需要在配置文件中设置，此处仅用于连通性测试。
+        <p style={{ color: '#586069', marginBottom: 16 }}>
+          配置和测试 AI Provider 连接。API Keys 需要在配置文件中设置，此处仅用于连通性测试。
         </p>
       </div>
 
@@ -286,7 +275,7 @@ export default function SettingsProviders() {
           style={{
             marginTop: 24,
             padding: 16,
-            backgroundColor: "#f6f8fa",
+            backgroundColor: '#f6f8fa',
             borderRadius: 6,
           }}
         >

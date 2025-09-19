@@ -1,10 +1,10 @@
 # DevMinds.ai Development Tracker
 
-> **文件更新原则**: 此文档只反映当前最新状态，不记录历史沿袭和时间戳。工作进度用 [ ]/[/]/[X] 标记，当前摘要反映实际完成情况，下一步列出待办事项。
+> **文件更新原则**: 此文档只反映当前最新状态，不记录历史沿袭和时间戳。工作进度用 [ ]/[/]/[x] 标记，当前摘要反映实际完成情况，下一步列出待办事项。
 
 - [ ] is holding
 - [/] is doing
-- [X] is done
+- [x] is done
 
 ### 项目文档
 
@@ -46,26 +46,31 @@
 ### TDD 验证结果
 
 **✅ workspace_init（工作区初始化）**
+
 - [x] .minds/ 与 .tasklogs/ 目录创建
 - [x] providers.json 模板生成（不含密钥）
 - [x] .gitignore 包含 .tasklogs/ 规则
 
 **✅ task_lifecycle（任务生命周期）**
+
 - [x] 任务目录结构：.minds/tasks/{taskId}/wip.md
 - [x] meta.json 初始化：.tasklogs/{taskId}/meta.json
 - [x] 事件文件生成：events-YYYYMMDD.jsonl
 
 **✅ conversation_round（会话轮次）**
+
 - [x] 事件按时序写入 JSONL 文件
 - [x] spanId/parentSpanId 层级结构
 - [x] UI 实时显示和历史回放
 
 **✅ subtask_tree（子任务树）**
+
 - [x] 父子目录结构：.tasklogs/{taskId}/subtasks/{childTaskId}/
 - [x] meta.json 父子关联正确
 - [x] UI 任务树展开和定位
 
 **✅ error_handling（错误处理）**
+
 - [x] 损坏 JSONL 行的友好处理和警告
 - [x] 缺失文件的降级显示
 - [x] API 返回详细错误信息（warnings 数组）
@@ -74,29 +79,32 @@
 ### 下一步
 
 [/] **M2 交互功能开发**（当前重点）
-   - AI Agent 集成：从 opencode 迁移核心 agent 逻辑
-   - 实时 WebSocket 架构提升：
-     * 按 taskId 建立专用 WS 连接
-     * 进程内 AI agent 协程 pub/sub 节点订阅
-     * 跨进程场景降级为 tail follow JSONL
-     * 前端 WS 重连机制
-   - Web 端任务创建和管理界面
-   - 用户提交 prompt 触发 AI Agent 对话
-   - Web 端触发工具调用和中断控制
+
+- AI Agent 集成：从 opencode 迁移核心 agent 逻辑
+- 实时 WebSocket 架构提升：
+  - 按 taskId 建立专用 WS 连接
+  - 进程内 AI agent 协程 pub/sub 节点订阅
+  - 跨进程场景降级为 tail follow JSONL
+  - 前端 WS 重连机制
+- Web 端任务创建和管理界面
+- 用户提交 prompt 触发 AI Agent 对话
+- Web 端触发工具调用和中断控制
 
 **技术架构重点**：
+
 - **状态机设计**：后端维护 `taskId => pub/sub 节点` 映射，节点有 3 种状态：
-  * `idle`：无活动状态
-  * `follow`：文件监控状态（fs.watch events-*.jsonl）
-  * `run`：AI agent 协程运行状态
+  - `idle`：无活动状态
+  - `follow`：文件监控状态（fs.watch events-\*.jsonl）
+  - `run`：AI agent 协程运行状态
 - **状态转换逻辑**：
-  * 本进程开始 task 推进 → 启动 agent 协程 → 进入 `run` 状态
-  * 非 `run` 状态 + 前端 WS 请求 → 进入 `follow` 状态
-  * `follow` 状态 + 前端请求推进 → 切换到 `run` 状态并停止 fs.watch
+  - 本进程开始 task 推进 → 启动 agent 协程 → 进入 `run` 状态
+  - 非 `run` 状态 + 前端 WS 请求 → 进入 `follow` 状态
+  - `follow` 状态 + 前端请求推进 → 切换到 `run` 状态并停止 fs.watch
 - **连接管理**：用户关注特定 task → 建立 `/ws/:taskId` 连接 → 订阅对应状态节点
 - **资源优化**：按需状态切换，避免不必要的文件监控和协程开销
 
 ### 运行方式
+
 - 后端: `npm run dev` (packages/backend, 端口 5175)
 - 前端: `npm run dev` (packages/webapp, 端口 5173, 已代理 /api 与 /ws)
 - 访问: http://localhost:5173/tasks/DEMO
