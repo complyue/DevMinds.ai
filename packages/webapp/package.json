@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "dev": "vite",
-    "format": "pnpm exec sort-json src/**/*.json --deep --ignore-case --order asc || true && pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,yaml,yml,css,scss,md,mdx,html,htm}\" || true",
+    "format": "sh -c 'set -e; for f in src/**/*.json; do [ -f \"$f\" ] && pnpm exec sort-json \"$f\" --deep --ignore-case --order asc || true; done' && pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,yaml,yml,css,scss,md,mdx,html,htm}\" || true",
     "lint": "echo \"(add linter later)\"",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit"
