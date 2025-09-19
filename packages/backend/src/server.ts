@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { serve } from "@hono/node-server"
 import { z } from "zod"
 import { createServer } from "http"
-import { WebSocketServer } from "ws"
+import { WebSocketServer, WebSocket } from "ws"
 import { promises as fs } from "fs"
 import path from "path"
 import url from "url"
@@ -292,8 +292,8 @@ const filePositions = new Map<string, number>()
 // Broadcast message to all connected WebSocket clients
 function broadcast(message: any) {
   const messageStr = JSON.stringify(message)
-  wss.clients.forEach((client) => {
-    if (client.readyState === 1) { // WebSocket.OPEN
+  wss.clients.forEach((client: WebSocket) => {
+    if (client.readyState === WebSocket.OPEN) {
       client.send(messageStr)
     }
   })
@@ -392,7 +392,7 @@ async function initializeFileMonitoring() {
 }
 
 // WebSocket connection handling
-wss.on("connection", (ws) => {
+wss.on("connection", (ws: WebSocket) => {
   ws.send(JSON.stringify({
     ts: new Date().toISOString(),
     type: "welcome",
@@ -403,7 +403,7 @@ wss.on("connection", (ws) => {
     console.log('WebSocket client disconnected')
   })
 
-  ws.on('error', (err) => {
+  ws.on('error', (err: unknown) => {
     console.error('WebSocket error:', err)
   })
 })
