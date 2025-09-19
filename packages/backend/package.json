@@ -8,7 +8,8 @@
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo \"(add linter later)\""
+    "lint": "echo \"(add linter later)\"",
+    "format": "pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md,mdx,html,htm}\" || true"
   },
   "dependencies": {
     "@hono/node-server": "1.13.8",

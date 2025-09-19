@@ -1,0 +1,3 @@
+#!/bin/sh
+# Pre-commit: format staged TS files via lint-staged
+pnpm exec lint-staged
