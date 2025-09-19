@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "vite",
+    "format": "pnpm exec sort-json src/**/*.json --deep --ignore-case --order asc || true && pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,yaml,yml,css,scss,md,mdx,html,htm}\" || true",
     "lint": "echo \"(add linter later)\"",
-    "format": "pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md,mdx,html,htm}\" || true"
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "react": "18.3.1",

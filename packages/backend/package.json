@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "format": "pnpm exec sort-json src/**/*.json --deep --ignore-case --order asc || true && pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,yaml,yml,css,scss,md,mdx,html,htm}\" || true",
     "lint": "echo \"(add linter later)\"",
-    "format": "pnpm exec prettier -w \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md,mdx,html,htm}\" || true"
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "1.13.8",
