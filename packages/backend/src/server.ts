@@ -23,7 +23,9 @@ const paths = {
   tasklogs: (...p: string[]) => path.join(repoRoot, '.tasklogs', ...p),
 };
 
-// Load provider template from YAML
+/**
+ * Load built-in provider template from YAML.
+ */
 async function loadProviderTemplate() {
   const templatePath = path.join(__dirname, '../config/known-providers.yaml');
   try {
@@ -54,6 +56,68 @@ async function loadProviderTemplate() {
       },
     },
   };
+}
+
+/**
+ * Load runtime provider config from .minds/provider.yaml if present.
+ */
+async function loadRuntimeProviderConfig() {
+  const runtimePath = paths.minds('provider.yaml');
+  try {
+    if (await fileExists(runtimePath)) {
+      const yamlContent = await readText(runtimePath);
+      if (yamlContent && yamlContent.trim().length > 0) {
+        const doc = yaml.load(yamlContent) as any;
+        if (doc && typeof doc === 'object') {
+          return doc;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to load runtime provider config:', error);
+  }
+  return null;
+}
+
+/**
+ * Deep merge of provider configs: runtime overrides built-in.
+ * - merges top-level fields
+ * - for providers map, merges each provider object
+ * - for arrays (e.g., models), uses runtime value if provided, otherwise built-in
+ */
+function mergeProviderConfigs(baseCfg: any, runtimeCfg: any) {
+  if (!runtimeCfg) return { merged: baseCfg, hadRuntime: false };
+
+  const isObject = (v: any) => v && typeof v === 'object' && !Array.isArray(v);
+
+  const merge = (a: any, b: any): any => {
+    if (Array.isArray(a) || Array.isArray(b)) {
+      return b !== undefined ? b : a;
+    }
+    if (isObject(a) && isObject(b)) {
+      const out: any = { ...a };
+      for (const k of Object.keys(b)) {
+        out[k] = merge(a[k], b[k]);
+      }
+      return out;
+    }
+    return b !== undefined ? b : a;
+  };
+
+  // Ensure providers maps exist
+  const baseProviders = baseCfg?.providers && isObject(baseCfg.providers) ? baseCfg.providers : {};
+  const runtimeProviders =
+    runtimeCfg?.providers && isObject(runtimeCfg.providers) ? runtimeCfg.providers : {};
+
+  const mergedProviders: any = { ...baseProviders };
+  for (const pid of Object.keys(runtimeProviders)) {
+    mergedProviders[pid] = merge(baseProviders[pid], runtimeProviders[pid]);
+  }
+
+  const mergedTop = merge(baseCfg, runtimeCfg);
+  mergedTop.providers = mergedProviders;
+
+  return { merged: mergedTop, hadRuntime: true };
 }
 
 // Helpers
@@ -209,14 +273,21 @@ app.get('/api/tasks/:id/events', async (c) => {
   return c.json(resp);
 });
 
-// GET /api/providers - Read providers config
+/**
+ * GET /api/providers - Read providers config
+ * Returns merged config with runtime overrides from .minds/provider.yaml when available.
+ */
 app.get('/api/providers', async (c) => {
-  // Always use built-in provider configuration
   const template = await loadProviderTemplate();
-  return c.json({ ok: true, config: template, isBuiltIn: true });
+  const runtime = await loadRuntimeProviderConfig();
+  const { merged, hadRuntime } = mergeProviderConfigs(template, runtime);
+  return c.json({ ok: true, config: merged, isBuiltIn: !hadRuntime, hasRuntime: hadRuntime });
 });
 
-// POST /api/providers/test - Test provider connectivity (no persistence)
+/**
+ * POST /api/providers/test - Test provider connectivity (no persistence)
+ * Uses merged config so runtime overrides are respected.
+ */
 app.post('/api/providers/test', async (c) => {
   try {
     const body = await c.req.json();
@@ -226,9 +297,11 @@ app.post('/api/providers/test', async (c) => {
       return c.json({ ok: false, message: 'Missing providerId' }, 400);
     }
 
-    // Use built-in provider configuration
+    // Use merged provider configuration
     const template = await loadProviderTemplate();
-    const provider = template.providers?.[providerId];
+    const runtime = await loadRuntimeProviderConfig();
+    const { merged } = mergeProviderConfigs(template, runtime);
+    const provider = merged.providers?.[providerId];
     if (!provider) {
       return c.json({ ok: false, message: `Provider ${providerId} not found` }, 404);
     }
