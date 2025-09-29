@@ -215,10 +215,6 @@ export default function SettingsProviders() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleTest = (providerId: string, apiKey: string, baseUrl: string, model: string) => {
-    // Test function is handled within ProviderConfigForm
-  };
-
   if (loading) {
     return (
       <div style={{ padding: 16 }}>
@@ -262,12 +258,7 @@ export default function SettingsProviders() {
 
       {config &&
         Object.entries(config.providers).map(([providerId, provider]) => (
-          <ProviderConfigForm
-            key={providerId}
-            providerId={providerId}
-            provider={provider}
-            onTest={handleTest}
-          />
+          <ProviderConfigForm key={providerId} providerId={providerId} provider={provider} />
         ))}
 
       {config && config.default && (

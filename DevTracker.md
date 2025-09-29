@@ -38,7 +38,9 @@
   - 错误处理 - 友好的降级显示和状态提示
 - **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
   - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）
-  - 规划：完善状态机与 pub/sub 节点（idle/follow/run 状态转换）
+  - 新增：M2 基础推进与状态查询已实现（run/status）
+    - POST /api/tasks/:id/run：进入 run，模拟产出 agent.run.\*，完成后切回 follow
+    - GET /api/tasks/:id/status：返回 { state: idle|follow|run, clients, running }
   - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
 - **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件
@@ -108,4 +110,8 @@
 - 后端: `npm run dev` (packages/backend, 端口 5175)
 - 前端: `npm run dev` (packages/webapp, 端口 5173, 已代理 /api 与 /ws)
 - 访问: http://localhost:5173/tasks/DEMO
-- 测试: curl http://localhost:5175/api/tasks/DEMO/wip
+- 测试:
+  - curl http://localhost:5175/api/tasks/DEMO/wip
+  - curl -X POST http://localhost:5175/api/tasks/DEMO/run
+  - curl http://localhost:5175/api/tasks/DEMO/status
+  - curl "http://localhost:5175/api/tasks/DEMO/events?limit=10"

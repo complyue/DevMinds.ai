@@ -23,6 +23,10 @@ const paths = {
   tasklogs: (...p: string[]) => path.join(repoRoot, '.tasklogs', ...p),
 };
 
+async function ensureDir(p: string) {
+  await fs.mkdir(p, { recursive: true }).catch(() => {});
+}
+
 /**
  * Load built-in provider template from YAML.
  */
@@ -404,13 +408,14 @@ type TaskNode = {
   state: TaskState;
   clients: Set<WebSocket>;
   watchers: Map<string, ReturnType<typeof watch>>;
+  running?: boolean;
 };
 const taskNodes = new Map<string, TaskNode>();
 
 function getOrCreateTaskNode(taskId: string): TaskNode {
   let node = taskNodes.get(taskId);
   if (!node) {
-    node = { state: 'idle', clients: new Set(), watchers: new Map() };
+    node = { state: 'idle', clients: new Set(), watchers: new Map(), running: false };
     taskNodes.set(taskId, node);
   }
   return node;
@@ -459,6 +464,19 @@ async function ensureFollow(taskId: string) {
 const fileWatchers = new Map<string, any>();
 const filePositions = new Map<string, number>();
 
+function stopAllWatchersForTask(taskId: string) {
+  const node = taskNodes.get(taskId);
+  if (!node) return;
+  for (const [fp, w] of node.watchers) {
+    try {
+      w.close();
+      fileWatchers.delete(fp);
+      filePositions.delete(fp);
+    } catch {}
+  }
+  node.watchers.clear();
+}
+
 // Broadcast message to all connected WebSocket clients
 function broadcast(message: any) {
   const messageStr = JSON.stringify(message);
@@ -467,6 +485,18 @@ function broadcast(message: any) {
       client.send(messageStr);
     }
   });
+}
+
+/**
+ * Status helpers
+ */
+function getTaskStatus(taskId: string) {
+  const node = getOrCreateTaskNode(taskId);
+  return {
+    state: node.state,
+    clients: node.clients.size,
+    running: !!node.running,
+  };
 }
 
 // Monitor a specific event file for new content
@@ -612,6 +642,76 @@ wss.on('connection', (ws: WebSocket, req: any) => {
  * Startup-wide file monitoring is disabled; watchers are created on demand per /ws/:taskId connection.
  */
 // initializeFileMonitoring();
+
+/**
+ * M2: run state — start a simulated agent producer
+ */
+async function appendEventToFile(taskId: string, ev: EventT) {
+  const day = ev.ts.slice(0, 10).replace(/-/g, '');
+  const dir = paths.tasklogs(taskId);
+  await ensureDir(dir);
+  const file = path.join(dir, `events-${day}.jsonl`);
+  const line = JSON.stringify(ev) + '\n';
+  await fs.appendFile(file, line, 'utf8');
+}
+
+async function startRun(taskId: string) {
+  const node = getOrCreateTaskNode(taskId);
+  if (node.running) return; // already running
+  node.running = true;
+  stopAllWatchersForTask(taskId);
+  node.state = 'run';
+
+  // simple simulated producer: 5 events at 500ms intervals
+  const startTs = Date.now();
+
+  const tick = async (i: number) => {
+    const nowIso = new Date().toISOString();
+    const ev: EventT = {
+      ts: nowIso,
+      taskId,
+      type: i === 0 ? 'agent.run.started' : i < 4 ? 'agent.run.tick' : 'agent.run.finished',
+      payload:
+        i === 0 ? { message: 'run started' } : i < 4 ? { i } : { durationMs: Date.now() - startTs },
+    };
+    await appendEventToFile(taskId, ev);
+    broadcastToTask(taskId, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: ev,
+    });
+  };
+
+  // Fire sequence
+  (async () => {
+    try {
+      await tick(0);
+      for (let i = 1; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        await tick(i);
+      }
+    } finally {
+      node.running = false;
+      // switch back to follow to tail subsequent manual appends
+      node.state = 'idle';
+      await ensureFollow(taskId);
+    }
+  })();
+}
+
+// POST /api/tasks/:id/run - switch to run and start simulated producer
+app.post('/api/tasks/:id/run', async (c) => {
+  const taskId = c.req.param('id');
+  startRun(taskId);
+  return c.json({ ok: true, message: 'run started' });
+});
+
+// GET /api/tasks/:id/status - report current node state
+app.get('/api/tasks/:id/status', async (c) => {
+  const taskId = c.req.param('id');
+  const status = getTaskStatus(taskId);
+  return c.json({ ok: true, status });
+});
 
 const PORT = Number(process.env.PORT ?? 5175);
 httpServer.listen(PORT, () => {

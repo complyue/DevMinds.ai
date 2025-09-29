@@ -12,10 +12,30 @@ type Event = {
   parentSpanId?: string;
 };
 
-function Toolbar({ onRefresh }: { onRefresh: () => void }) {
+function Toolbar({
+  onRefresh,
+  onRun,
+  state,
+}: {
+  onRefresh: () => void;
+  onRun: () => void;
+  state: 'idle' | 'follow' | 'run';
+}) {
+  const running = state === 'run';
   return (
-    <div className="toolbar">
+    <div className="toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
       <button onClick={onRefresh}>刷新</button>
+      <button onClick={onRun} disabled={running}>
+        推进
+      </button>
+      <span
+        style={{
+          fontSize: 12,
+          color: running ? '#d73a49' : state === 'follow' ? '#28a745' : '#6a737d',
+        }}
+      >
+        状态: {state}
+      </span>
       <button disabled>新建子任务</button>
       <button disabled>停止</button>
     </div>
@@ -253,6 +273,7 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   const [events, setEvents] = useState<Event[]>([]);
   const [warnings, setWarnings] = useState<any[]>([]);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [state, setState] = useState<'idle' | 'follow' | 'run'>('idle');
 
   // Group events by spanId hierarchy
   const eventGroups = useMemo(() => {
@@ -331,11 +352,29 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
     };
   }, [taskId]);
 
+  // Poll backend status to reflect idle/follow/run
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/status`);
+        const res = await r.json();
+        if (!stop && res?.ok && res.status?.state) {
+          setState(res.status.state);
+        }
+      } catch {}
+      if (!stop) setTimeout(tick, 500);
+    };
+    tick();
+    return () => {
+      stop = true;
+    };
+  }, [taskId]);
+
   return (
     <div className="panel">
       <Toolbar
         onRefresh={() => {
-          // Refetch events
           fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&limit=200`)
             .then((r) => r.json())
             .then((res) => {
@@ -343,6 +382,10 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
               setWarnings(res.warnings ?? []);
             });
         }}
+        onRun={() => {
+          fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' }).catch(() => {});
+        }}
+        state={state}
       />
       <div className="content" style={{ padding: 12 }}>
         <div
@@ -422,98 +465,7 @@ function WipSummaryPanel({ taskId }: { taskId: string }) {
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}
           >
-            <ReactMarkdown
-              components={{
-                code: ({ node, inline, className, children, ...props }) => {
-                  return inline ? (
-                    <code
-                      style={{
-                        backgroundColor: '#f6f8fa',
-                        padding: '2px 4px',
-                        borderRadius: 3,
-                        fontSize: '0.9em',
-                        fontFamily: 'Monaco, Consolas, monospace',
-                      }}
-                      {...props}
-                    >
-                      {children}
-                    </code>
-                  ) : (
-                    <pre
-                      style={{
-                        backgroundColor: '#f6f8fa',
-                        padding: 12,
-                        borderRadius: 6,
-                        overflow: 'auto',
-                        fontSize: '0.9em',
-                        fontFamily: 'Monaco, Consolas, monospace',
-                      }}
-                    >
-                      <code {...props}>{children}</code>
-                    </pre>
-                  );
-                },
-                h1: ({ children }) => (
-                  <h1
-                    style={{
-                      fontSize: '1.5em',
-                      marginTop: 24,
-                      marginBottom: 16,
-                      borderBottom: '1px solid #eee',
-                      paddingBottom: 8,
-                    }}
-                  >
-                    {children}
-                  </h1>
-                ),
-                h2: ({ children }) => (
-                  <h2
-                    style={{
-                      fontSize: '1.3em',
-                      marginTop: 20,
-                      marginBottom: 12,
-                    }}
-                  >
-                    {children}
-                  </h2>
-                ),
-                h3: ({ children }) => (
-                  <h3
-                    style={{
-                      fontSize: '1.1em',
-                      marginTop: 16,
-                      marginBottom: 8,
-                    }}
-                  >
-                    {children}
-                  </h3>
-                ),
-                ul: ({ children }) => (
-                  <ul style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ul>
-                ),
-                ol: ({ children }) => (
-                  <ol style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ol>
-                ),
-                li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
-                p: ({ children }) => (
-                  <p style={{ marginBottom: 12, lineHeight: 1.6 }}>{children}</p>
-                ),
-                blockquote: ({ children }) => (
-                  <blockquote
-                    style={{
-                      borderLeft: '4px solid #dfe2e5',
-                      paddingLeft: 16,
-                      margin: '12px 0',
-                      color: '#6a737d',
-                    }}
-                  >
-                    {children}
-                  </blockquote>
-                ),
-              }}
-            >
-              {wip}
-            </ReactMarkdown>
+            <ReactMarkdown>{wip}</ReactMarkdown>
           </div>
         )}
         {!missing && !loading && !wip && <div style={{ color: '#6a737d' }}>摘要为空</div>}
