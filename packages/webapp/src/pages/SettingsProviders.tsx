@@ -5,12 +5,13 @@ type Provider = {
   name: string;
   baseUrl: string;
   models: string[];
-  apiKey: string;
+  apiKeyEnvVar?: string;
+  apiType?: string;
 };
 
 type ProvidersConfig = {
   providers: Record<string, Provider>;
-  default: string;
+  default?: string;
 };
 
 type TestResult = {
@@ -27,19 +28,13 @@ function ProviderConfigForm({
 }: {
   providerId: string;
   provider: Provider;
-  onTest: (providerId: string, apiKey: string, baseUrl: string, model: string) => void;
+  onTest?: (providerId: string, model: string) => void;
 }) {
-  const [apiKey, setApiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState(provider.models[0] || '');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const handleTest = async () => {
-    if (!apiKey.trim()) {
-      setTestResult({ connected: false, message: '请输入 API Key' });
-      return;
-    }
-
     setTesting(true);
     setTestResult(null);
 
@@ -48,9 +43,7 @@ function ProviderConfigForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: providerId,
-          apiKey: apiKey.trim(),
-          baseUrl: provider.baseUrl,
+          providerId,
           model: selectedModel,
         }),
       });
@@ -117,23 +110,30 @@ function ProviderConfigForm({
             fontWeight: 500,
           }}
         >
-          API Key
+          凭证来源
         </label>
         <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="输入您的 API Key"
+          type="text"
+          value={
+            provider.apiKeyEnvVar
+              ? `环境变量 ${provider.apiKeyEnvVar}`
+              : '未指定（按 apiType 默认）'
+          }
+          disabled
           style={{
             width: '100%',
             padding: 8,
             border: '1px solid #d1d5da',
             borderRadius: 4,
+            backgroundColor: '#f6f8fa',
+            color: '#586069',
           }}
         />
-        <div style={{ fontSize: 12, color: '#586069', marginTop: 4 }}>
-          API Key 不会被保存，仅用于连通性测试
-        </div>
+        {provider.apiType && (
+          <div style={{ fontSize: 12, color: '#586069', marginTop: 4 }}>
+            API 类型：{provider.apiType}
+          </div>
+        )}
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -168,7 +168,7 @@ function ProviderConfigForm({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={handleTest}
-          disabled={testing || !apiKey.trim()}
+          disabled={testing}
           style={{
             padding: '8px 16px',
             backgroundColor: testing ? '#f6f8fa' : '#0366d6',
@@ -200,7 +200,7 @@ function ProviderConfigForm({
 export default function SettingsProviders() {
   const [config, setConfig] = useState<ProvidersConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isTemplate, setIsTemplate] = useState(false);
+  const [isBuiltIn, setIsBuiltIn] = useState(false);
 
   useEffect(() => {
     fetch('/api/providers')
@@ -208,7 +208,7 @@ export default function SettingsProviders() {
       .then((res) => {
         if (res.ok) {
           setConfig(res.config);
-          setIsTemplate(res.isTemplate || false);
+          setIsBuiltIn(res.isBuiltIn || false);
         }
       })
       .catch(console.error)
@@ -238,7 +238,7 @@ export default function SettingsProviders() {
 
       <h2 style={{ marginBottom: 16 }}>Provider 设置</h2>
 
-      {isTemplate && (
+      {isBuiltIn && (
         <div
           style={{
             backgroundColor: '#fff3cd',
@@ -249,8 +249,8 @@ export default function SettingsProviders() {
             fontSize: 14,
           }}
         >
-          <strong>注意：</strong> 当前显示的是默认配置模板。请在项目根目录的{' '}
-          <code>.minds/config/providers.json</code> 中配置您的 API Keys。
+          <strong>注意：</strong> 正在使用内置 Provider 模板。可在项目根目录配置{' '}
+          <code>.minds/provider.yaml</code> 覆盖默认设置（推荐通过环境变量提供密钥）。
         </div>
       )}
 
@@ -270,7 +270,7 @@ export default function SettingsProviders() {
           />
         ))}
 
-      {config && (
+      {config && config.default && (
         <div
           style={{
             marginTop: 24,

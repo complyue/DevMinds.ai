@@ -301,7 +301,7 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
 
   // WebSocket connection for real-time updates
   useEffect(() => {
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${encodeURIComponent(taskId)}`;
     const websocket = new WebSocket(wsUrl);
 
     websocket.onopen = () => {

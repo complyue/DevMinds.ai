@@ -11,6 +11,7 @@
     "format:rootdocs": "scripts/format-root-docs.sh",
     "lint": "pnpm -r run lint",
     "preview:web": "pnpm --filter @devminds/webapp preview",
+    "test": "vitest run",
     "typecheck": "pnpm -r run typecheck",
     "update-models": "node scripts/update-models.js"
   },
@@ -34,7 +35,8 @@
     "prettier": "3.6.2",
     "sort-json": "^2.0.1",
     "sort-package-json": "^3.4.0",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "^2.1.1"
   },
   "packageManager": "pnpm@9.0.0"
 }

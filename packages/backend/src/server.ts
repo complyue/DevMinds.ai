@@ -396,7 +396,64 @@ const httpServer = createServer((req, res) => {
     });
 });
 
-const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+const wss = new WebSocketServer({ server: httpServer });
+
+// Minimal per-task state node
+type TaskState = 'idle' | 'follow' | 'run';
+type TaskNode = {
+  state: TaskState;
+  clients: Set<WebSocket>;
+  watchers: Map<string, ReturnType<typeof watch>>;
+};
+const taskNodes = new Map<string, TaskNode>();
+
+function getOrCreateTaskNode(taskId: string): TaskNode {
+  let node = taskNodes.get(taskId);
+  if (!node) {
+    node = { state: 'idle', clients: new Set(), watchers: new Map() };
+    taskNodes.set(taskId, node);
+  }
+  return node;
+}
+
+// Broadcast to clients of a specific task
+function broadcastToTask(taskId: string, message: any) {
+  const node = taskNodes.get(taskId);
+  if (!node) return;
+  const msg = JSON.stringify(message);
+  for (const client of node.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  }
+}
+
+// Ensure the task is in "follow" mode by watching event files
+async function ensureFollow(taskId: string) {
+  const node = getOrCreateTaskNode(taskId);
+  if (node.state === 'follow' || node.state === 'run') return;
+
+  const taskDir = paths.tasklogs(taskId);
+  if (!(await fileExists(taskDir))) {
+    node.state = 'idle';
+    return;
+  }
+
+  try {
+    const files = await fs.readdir(taskDir);
+    for (const f of files) {
+      if (f.startsWith('events-') && f.endsWith('.jsonl')) {
+        const fp = path.join(taskDir, f);
+        if (!node.watchers.has(fp)) {
+          await monitorEventFile(fp, taskId); // installs a watcher if not already
+          // monitorEventFile uses global maps; we still track presence at node-level by reading global fileWatchers
+          node.watchers.set(fp, fileWatchers.get(fp));
+        }
+      }
+    }
+    node.state = 'follow';
+  } catch (err) {
+    console.warn(`[task:${taskId}] ensureFollow failed:`, err);
+  }
+}
 
 // File monitoring for real-time event broadcasting
 const fileWatchers = new Map<string, any>();
@@ -445,7 +502,7 @@ async function monitorEventFile(filePath: string, taskId: string) {
                 const event = JSON.parse(line);
                 const parsed = EventSchema.safeParse(event);
                 if (parsed.success) {
-                  broadcast({
+                  broadcastToTask(taskId, {
                     ts: new Date().toISOString(),
                     type: 'message.appended',
                     payload: parsed.data,
@@ -504,27 +561,57 @@ async function initializeFileMonitoring() {
   }
 }
 
-// WebSocket connection handling
-wss.on('connection', (ws: WebSocket) => {
-  ws.send(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      type: 'welcome',
-      payload: { ok: true, message: 'WebSocket connected' },
-    }),
-  );
+/**
+ * WebSocket connection handling
+ * Route: /ws/:taskId
+ */
+wss.on('connection', (ws: WebSocket, req: any) => {
+  try {
+    const reqUrl = new URL(req?.url || '/', 'http://localhost');
+    const parts = reqUrl.pathname.split('/').filter(Boolean); // ['ws', ':taskId']
+    if (parts[0] !== 'ws' || parts.length < 2) {
+      ws.close(1008, 'Expected /ws/:taskId');
+      return;
+    }
+    const taskId = decodeURIComponent(parts[1]);
+    const node = getOrCreateTaskNode(taskId);
+    node.clients.add(ws);
 
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
-  });
+    // Move to follow on first subscriber if idle
+    if (node.state === 'idle') {
+      ensureFollow(taskId);
+    }
 
-  ws.on('error', (err: unknown) => {
-    console.error('WebSocket error:', err);
-  });
+    ws.send(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        type: 'welcome',
+        payload: { ok: true, message: `WebSocket connected to task ${taskId}` },
+      }),
+    );
+
+    ws.on('close', () => {
+      node.clients.delete(ws);
+      console.log(`[ws] client disconnected from ${taskId} (clients=${node.clients.size})`);
+      // keep watchers for now; optimization for tearing down can be added later
+    });
+
+    ws.on('error', (err: unknown) => {
+      console.error(`[ws] error for ${taskId}:`, err);
+    });
+  } catch (err) {
+    console.error('[ws] failed to handle connection:', err);
+    try {
+      ws.close(1011, 'Internal error');
+    } catch {}
+  }
 });
 
-// Initialize file monitoring on startup
-initializeFileMonitoring();
+/**
+ * M2: switch to lazy, task-scoped following.
+ * Startup-wide file monitoring is disabled; watchers are created on demand per /ws/:taskId connection.
+ */
+// initializeFileMonitoring();
 
 const PORT = Number(process.env.PORT ?? 5175);
 httpServer.listen(PORT, () => {

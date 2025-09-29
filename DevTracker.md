@@ -36,10 +36,10 @@
   - WipSummaryPanel - Markdown 渲染，代码高亮，响应式样式
   - SettingsProviders - Provider 配置界面，连通性测试
   - 错误处理 - 友好的降级显示和状态提示
-- **实时功能**: WebSocket 事件广播系统（M1 基础实现）
-  - 当前：基于 fs.watch 的全局文件监控和广播
-  - 规划：taskId 状态机 + pub/sub 节点（idle/follow/run 状态转换）
-  - 前端实时接收并显示新事件，连接状态指示
+- **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
+  - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）
+  - 规划：完善状态机与 pub/sub 节点（idle/follow/run 状态转换）
+  - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
 - **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件
 
