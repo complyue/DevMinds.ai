@@ -20,21 +20,20 @@ workspace-root/
 │  │  └─ providers.json               # Provider 模板选择与环境变量名等配置（不含密钥明文）
 │  ├─ skills/
 │  │  └─ {skill}/
-│  │     ├─ def.md                    # 技能定义（可缺省，缺省表示使用内置定义）
+│  │     ├─ def.md                    # 技能定义；在此明确指定 providerId 与可选 model
 │  │     ├─ knowledge.md              # 领域知识/速记（可由 Agent/用户维护）
 │  │     └─ lessons.md                # 经验沉淀/教训（Agent 在使用过程中补充）
 │  └─ tasks/
 │     └─ {taskId}/
 │        ├─ plan.md                   # 任务分解/步骤
 │        ├─ wip.md                    # 当前任务摘要（每轮 LLM 后更新；覆盖或追加均可）
+│        ├─ team.md                   # 任务组员定义（成员列表、默认成员；每个成员绑定 skill）
 │        └─ caveats.md                # 本任务特有注意事项（仅存在于 task 级）
 ├─ .tasklogs/
 │  └─ {taskId}/
-│     ├─ meta.json                    # 元数据（创建时间、agents、skill、模型等）
 │     ├─ events-YYYYMMDD.jsonl        # 顶层任务的事件与原始消息（JSON Lines）
 │     └─ subtasks/
 │        └─ {childTaskId}/
-│           ├─ meta.json
 │           ├─ events-YYYYMMDD.jsonl
 │           └─ subtasks/
 │              └─ {grandChildTaskId}/
@@ -81,7 +80,8 @@ workspace-root/
 - 目录与命名：
   - 顶层任务：.tasklogs/{taskId}/events-YYYYMMDD.jsonl
   - 多级子任务：.tasklogs/{taskId}/subtasks/{childTaskId}/subtasks/{...}/events-YYYYMMDD.jsonl
-  - meta.json 存放任务元数据
+- 元信息承载：
+  - 取消 meta.json；任务与成员、skill、provider、model 等元信息由每条事件 payload 承载
 - 异常处置（简化策略）：
   - 不提供自动恢复或幂等重放机制
   - UI 尽量加载并展示可解析内容；若发现异常/损坏，提示用户手工检查相关文件
@@ -117,7 +117,7 @@ workspace-root/
   - 若 .gitignore 缺失 .tasklogs/ 规则，提示用户加入：
     - .tasklogs/
 - 任务创建建议（参考高层 CLI 行为，不在本文件定义命令语义）：
-  - 新建任务时：分配 {taskId}，写入 .tasklogs/{taskId}/meta.json，初始化 .minds/tasks/{taskId}/(wip.md, plan.md, caveats.md)
+  - 新建任务时：分配 {taskId}，初始化 .minds/tasks/{taskId}/(wip.md, plan.md, team.md, caveats.md)
 
 ## 9. 命名、ID 与时间线习惯
 
@@ -131,9 +131,9 @@ workspace-root/
 
 - 为关键场景编写 Given-When-Then 步骤，并将断言绑定到工作区结构：
   - 初始化目录 -> 检查 .minds/.tasklogs 存在性与 providers.json 模板
-  - 新建任务 -> 检查 .minds/tasks/{taskId} 与 .tasklogs/{taskId}/meta.json
+  - 新建任务 -> 检查 .minds/tasks/{taskId} 结构（含 team.md）
   - 产生一轮对话 -> 检查 wip.md 更新与 events-YYYYMMDD.jsonl 追加
-  - 创建子任务 -> 检查 .tasklogs/{taskId}/subtasks/{childTaskId}/… 结构与 meta.json
+  - 创建子任务 -> 检查 .tasklogs/{taskId}/subtasks/{childTaskId}/… 结构（不再包含 meta.json）
   - 发生异常 -> UI 提示并可定位到异常文件
 
 ## 11. 兼容性与迁移

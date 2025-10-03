@@ -8,6 +8,9 @@ import path from 'path';
 import url from 'url';
 import { watch } from 'fs';
 import * as yaml from 'js-yaml';
+import './providers/defaults.js';
+import './providers/hooks.js';
+import { callProvider } from './providers/registry.js';
 
 const app = new Hono();
 
@@ -15,8 +18,11 @@ const app = new Hono();
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Resolve runtime root (repo root). Server runs from packages/backend
-const repoRoot = path.resolve(process.cwd(), '../../');
+/**
+ * Workspace root is the server process current working directory.
+ * Do not use env vars to override; tests should run server from the intended root.
+ */
+const repoRoot = process.cwd();
 
 const paths = {
   minds: (...p: string[]) => path.join(repoRoot, '.minds', ...p),
@@ -35,7 +41,19 @@ async function loadProviderTemplate() {
   try {
     if (await fileExists(templatePath)) {
       const yamlContent = await readText(templatePath);
-      return yaml.load(yamlContent) as any;
+      const cfg = yaml.load(yamlContent) as any;
+      // Ensure mock provider exists even when YAML is present
+      if (!cfg?.providers) cfg.providers = {};
+      if (!cfg.providers.mock) {
+        cfg.providers.mock = {
+          name: 'MockLLM',
+          apiType: 'mock',
+          baseUrl: '',
+          models: ['test-model'],
+          apiKeyEnvVar: 'DEVMINDS_MOCK_DIR',
+        };
+      }
+      return cfg;
     }
   } catch (error) {
     console.warn('Failed to load provider template:', error);
@@ -57,6 +75,13 @@ async function loadProviderTemplate() {
         baseUrl: 'https://api.anthropic.com',
         models: ['claude-4-sonnet'],
         apiKeyEnvVar: 'ANTHROPIC_AUTH_TOKEN',
+      },
+      mock: {
+        name: 'MockLLM',
+        apiType: 'mock',
+        baseUrl: '',
+        models: ['test-model'],
+        apiKeyEnvVar: 'DEVMINDS_MOCK_DIR', // points to a local IO directory for tests
       },
     },
   };
@@ -138,6 +163,99 @@ async function readText(p: string) {
   return fs.readFile(p, 'utf8');
 }
 
+/**
+ * Load task team configuration from .minds/tasks/{taskId}/team.md
+ * Supports YAML frontmatter:
+ * ---
+ * defaultMember: alice
+ * members:
+ *   - id: alice
+ *     skill: coding
+ *   - id: bob
+ *     skill: review
+ * ---
+ * Fallback: simple "members:" list in JSON fenced block.
+ */
+async function loadTaskTeam(
+  taskId: string,
+): Promise<{ defaultMember?: string; members: Array<{ id: string; skill: string }> }> {
+  const dir = paths.minds('tasks', taskId);
+  const teamPath = path.join(dir, 'team.md');
+  if (!(await fileExists(teamPath))) {
+    throw new Error('team.md not found for task');
+  }
+  const text = await readText(teamPath);
+  // Try YAML frontmatter
+  const fmMatch = text.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (fmMatch) {
+    try {
+      const fm = yaml.load(fmMatch[1]) as any;
+      const members = Array.isArray(fm?.members) ? fm.members : [];
+      return {
+        defaultMember: fm?.defaultMember,
+        members: members.map((m: any) => ({
+          id: String(m?.id || m?.name),
+          skill: String(m?.skill),
+        })),
+      };
+    } catch (err) {
+      console.warn('Failed to parse team.md frontmatter:', err);
+    }
+  }
+  // Fallback: find a JSON code block
+  const jsonMatch = text.match(/```json\s*\n([\s\S]*?)\n```/);
+  if (jsonMatch) {
+    try {
+      const obj = JSON.parse(jsonMatch[1]);
+      const members = Array.isArray(obj?.members) ? obj.members : [];
+      return {
+        defaultMember: obj?.defaultMember,
+        members: members.map((m: any) => ({
+          id: String(m?.id || m?.name),
+          skill: String(m?.skill),
+        })),
+      };
+    } catch (err) {
+      console.warn('Failed to parse team.md JSON block:', err);
+    }
+  }
+  throw new Error('Unable to parse team.md');
+}
+
+/**
+ * Load skill definition from .minds/skills/{skill}/def.md
+ * Supports YAML frontmatter:
+ * ---
+ * providerId: openai
+ * model: gpt-5
+ * ---
+ * Fallback: lines like "Provider: openai" and "Model: gpt-5"
+ */
+async function loadSkillDef(skill: string): Promise<{ providerId: string; model?: string }> {
+  const dir = paths.minds('skills', skill);
+  const defPath = path.join(dir, 'def.md');
+  if (!(await fileExists(defPath))) {
+    throw new Error(`def.md not found for skill ${skill}`);
+  }
+  const text = await readText(defPath);
+  const fmMatch = text.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (fmMatch) {
+    try {
+      const fm = yaml.load(fmMatch[1]) as any;
+      if (!fm?.providerId) throw new Error('providerId missing in def.md');
+      return { providerId: String(fm.providerId), model: fm?.model ? String(fm.model) : undefined };
+    } catch (err) {
+      console.warn('Failed to parse def.md frontmatter:', err);
+    }
+  }
+  const provLine = text.match(/Provider:\s*([A-Za-z0-9_-]+)/i);
+  const modelLine = text.match(/Model:\s*([A-Za-z0-9._-]+)/i);
+  if (provLine) {
+    return { providerId: provLine[1], model: modelLine ? modelLine[1] : undefined };
+  }
+  throw new Error(`providerId not specified in def.md for skill ${skill}`);
+}
+
 const EventSchema = z.object({
   ts: z.string(),
   taskId: z.string(),
@@ -165,46 +283,28 @@ app.get('/api/tasks/:id/wip', async (c) => {
   return c.json({ ok: true, wip: content, meta: { mtime } });
 });
 
-// GET /api/tasks/:id/tree
-// Minimal: read .tasklogs/{id}/meta.json and subtasks/*/meta.json
+/**
+ * GET /api/tasks/:id/tree
+ * Read hierarchy from .tasklogs only; meta.json is deprecated.
+ * Meta information is carried in per-event payloads.
+ */
 app.get('/api/tasks/:id/tree', async (c) => {
   const id = c.req.param('id');
   const rootDir = paths.tasklogs(id);
   if (!(await fileExists(rootDir))) {
-    return c.json({
-      ok: true,
-      root: { id, children: [], meta: { missing: true } },
-    });
-  }
-  const rootMetaPath = path.join(rootDir, 'meta.json');
-  let rootMeta: any = {};
-  if (await fileExists(rootMetaPath)) {
-    try {
-      rootMeta = JSON.parse(await readText(rootMetaPath));
-    } catch {
-      rootMeta = { parseError: true };
-    }
+    return c.json({ ok: true, root: { id, children: [] } });
   }
   const subtasksDir = path.join(rootDir, 'subtasks');
-  let children: any[] = [];
+  const children: any[] = [];
   if (await fileExists(subtasksDir)) {
     const subIds = (await fs.readdir(subtasksDir, { withFileTypes: true }))
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
     for (const sid of subIds) {
-      const smetaPath = path.join(subtasksDir, sid, 'meta.json');
-      let smeta: any = {};
-      if (await fileExists(smetaPath)) {
-        try {
-          smeta = JSON.parse(await readText(smetaPath));
-        } catch {
-          smeta = { parseError: true };
-        }
-      }
-      children.push({ id: sid, children: [], meta: smeta });
+      children.push({ id: sid, children: [] });
     }
   }
-  return c.json({ ok: true, root: { id, children, meta: rootMeta } });
+  return c.json({ ok: true, root: { id, children } });
 });
 
 // GET /api/tasks/:id/events?date=YYYYMMDD&offset=0&limit=500&dateRange=YYYYMMDD-YYYYMMDD
@@ -655,6 +755,106 @@ async function appendEventToFile(taskId: string, ev: EventT) {
   await fs.appendFile(file, line, 'utf8');
 }
 
+// Real agent runner
+async function runRealAgent(taskId: string): Promise<void> {
+  // Load merged provider config
+  const template = await loadProviderTemplate();
+  const runtime = await loadRuntimeProviderConfig();
+  const { merged } = mergeProviderConfigs(template, runtime);
+
+  // Resolve member and skill via team.md, and provider via skill def.md
+  const team = await loadTaskTeam(taskId);
+  if (!team.members || team.members.length === 0) {
+    throw new Error('No members defined in team.md');
+  }
+  const chosenMember = team.defaultMember
+    ? team.members.find((m) => m.id === team.defaultMember)
+    : team.members[0];
+  if (!chosenMember) {
+    throw new Error('Default member not found in team.md');
+  }
+  const skill = chosenMember.skill;
+  if (!skill) {
+    throw new Error('Selected member has no skill');
+  }
+  const skillDef = await loadSkillDef(skill);
+  const providerId: string = skillDef.providerId;
+  const provider = merged.providers?.[providerId];
+  if (!provider) {
+    throw new Error(`Provider ${providerId} not found`);
+  }
+  const modelOverride: string | undefined = skillDef.model;
+
+  // Resolve API key env var by apiType or explicit apiKeyEnvVar
+  const getDefaultEnvVar = (apiType: string) => {
+    switch (apiType) {
+      case 'openai':
+        return 'OPENAI_API_KEY';
+      case 'anthropic':
+        return 'ANTHROPIC_AUTH_TOKEN';
+      default:
+        return null;
+    }
+  };
+  const envVar = provider.apiKeyEnvVar || getDefaultEnvVar(provider.apiType);
+  const apiKey = envVar ? process.env[envVar] : undefined;
+  if (provider.apiType !== 'mock') {
+    if (!envVar) throw new Error(`No env var for apiType ${provider.apiType}`);
+    if (!apiKey) throw new Error(`Env ${envVar} not set`);
+  }
+
+  // Build prompt from WIP if available
+  let prompt = `Please summarize the current task ${taskId} context.`;
+  try {
+    const wipPath = paths.minds('tasks', taskId, 'wip.md');
+    if (await fileExists(wipPath)) {
+      prompt = await readText(wipPath);
+    }
+  } catch {}
+
+  const baseUrl: string = (provider.baseUrl?.replace(/\/+$/, '') ||
+    (provider.apiType === 'openai'
+      ? 'https://api.openai.com/v1'
+      : 'https://api.anthropic.com')) as string;
+  const model: string =
+    modelOverride ||
+    provider.models?.[0] ||
+    (provider.apiType === 'openai' ? 'gpt-5' : 'claude-4-sonnet');
+
+  let content = '';
+  if (provider.apiType === 'mock') {
+    const envVarMock = provider.apiKeyEnvVar || 'DEVMINDS_MOCK_DIR';
+    const ioDir = envVarMock ? process.env[envVarMock] : undefined;
+    if (!ioDir) {
+      throw new Error(`Mock io dir env var ${envVarMock} not set`);
+    }
+    const outPath = path.join(ioDir, `${taskId}.output`);
+    if (await fileExists(outPath)) {
+      content = await readText(outPath);
+    } else {
+      const p = (prompt || '').replace(/\s+/g, ' ').slice(0, 80);
+      content = `mock:${model}:${p}`;
+    }
+  } else {
+    content = await callProvider(provider.apiType, { provider, model, prompt, apiKey });
+  }
+
+  // Emit agent.run.output event with actual providerId
+  const nowIso = new Date().toISOString();
+  const evOut: EventT = {
+    ts: nowIso,
+    taskId,
+    type: 'agent.run.output',
+    payload: { member: chosenMember.id, skill, providerId, model, content },
+  };
+  await appendEventToFile(taskId, evOut);
+  broadcastToTask(taskId, {
+    ts: new Date().toISOString(),
+    type: 'message.appended',
+    payload: evOut,
+  });
+}
+
 async function startRun(taskId: string) {
   const node = getOrCreateTaskNode(taskId);
   if (node.running) return; // already running
@@ -662,37 +862,59 @@ async function startRun(taskId: string) {
   stopAllWatchersForTask(taskId);
   node.state = 'run';
 
-  // simple simulated producer: 5 events at 500ms intervals
-  const startTs = Date.now();
-
-  const tick = async (i: number) => {
-    const nowIso = new Date().toISOString();
-    const ev: EventT = {
-      ts: nowIso,
-      taskId,
-      type: i === 0 ? 'agent.run.started' : i < 4 ? 'agent.run.tick' : 'agent.run.finished',
-      payload:
-        i === 0 ? { message: 'run started' } : i < 4 ? { i } : { durationMs: Date.now() - startTs },
-    };
-    await appendEventToFile(taskId, ev);
-    broadcastToTask(taskId, {
-      ts: new Date().toISOString(),
-      type: 'message.appended',
-      payload: ev,
-    });
-  };
-
-  // Fire sequence
+  // Real agent flow: started -> output -> finished
   (async () => {
+    const startTs = Date.now();
     try {
-      await tick(0);
-      for (let i = 1; i < 5; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        await tick(i);
+      // started
+      const nowIso = new Date().toISOString();
+      const evStart: EventT = {
+        ts: nowIso,
+        taskId,
+        type: 'agent.run.started',
+        payload: { message: 'run started' },
+      };
+      await appendEventToFile(taskId, evStart);
+      broadcastToTask(taskId, {
+        ts: new Date().toISOString(),
+        type: 'message.appended',
+        payload: evStart,
+      });
+
+      // run agent once
+      try {
+        await runRealAgent(taskId);
+      } catch (err: any) {
+        const evErr: EventT = {
+          ts: new Date().toISOString(),
+          taskId,
+          type: 'agent.run.error',
+          payload: { message: String(err?.message || err) },
+        };
+        await appendEventToFile(taskId, evErr);
+        broadcastToTask(taskId, {
+          ts: new Date().toISOString(),
+          type: 'message.appended',
+          payload: evErr,
+        });
       }
     } finally {
+      // finished
+      const evDone: EventT = {
+        ts: new Date().toISOString(),
+        taskId,
+        type: 'agent.run.finished',
+        payload: { durationMs: Date.now() - startTs },
+      };
+      await appendEventToFile(taskId, evDone);
+      broadcastToTask(taskId, {
+        ts: new Date().toISOString(),
+        type: 'message.appended',
+        payload: evDone,
+      });
+
+      // switch back to follow
       node.running = false;
-      // switch back to follow to tail subsequent manual appends
       node.state = 'idle';
       await ensureFollow(taskId);
     }

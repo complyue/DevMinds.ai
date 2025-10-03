@@ -57,7 +57,7 @@
 - TaskPage 中间栏（ConversationStream）：
   - 初次加载通过 GET /api/tasks/:id/events 拉取历史
   - 建立 WS /ws/:taskId 订阅实时事件并追加
-- 左栏任务树：GET /api/tasks/:id/tree 读取 .tasklogs 元数据构建树
+- 左栏任务树：GET /api/tasks/:id/tree 读取 .tasklogs 层级构建树（不依赖 meta.json）
 - 右栏 WIP 摘要：GET /api/tasks/:id/wip 渲染 Markdown
 - Vite 代理（vite.config.ts）
   - /api → http://localhost:5175
@@ -102,3 +102,27 @@
   - 必要时补充 .tasklogs 写入以便回放
 
 如需我按以上建议落地 prompt 接口与 run 流程，请在 DevTracker 中将条目标注为进行中（[/]）并指派我实现。
+
+## 9. 测试运行与设计原则
+
+- 运行方法
+  - 单元测试：bash scripts/run-unit-tests.sh
+    - 后端以 tests/units/works/unit-ws 为工作区根（cwd）启动
+    - mock 输出位于 tests/units/works/mock-io（由环境变量 DEVMINDS_MOCK_DIR 指向）
+  - 后续计划：scripts/run-case-test.sh（场景/案例测试）、scripts/run-story-tests.sh（长流程/故事测试）
+
+- 设计原则
+  - 不引入测试模式；使用业务内置的 mock 引擎（apiType=mock）
+    - mock 引擎通过 provider.apiKeyEnvVar 指向的目录读取固定输出（例如：DEVMINDS_MOCK_DIR/{taskId}.output），无需外部网络和密钥
+  - 显式 provider 选择
+    - tasks/{taskId}/team.md 指定成员与其 skill
+    - skills/{skill}/def.md 指定 providerId 与可选 model
+  - 文件系统隔离
+    - 测试工作区固定为 tests/units/works/unit-ws；server 以该目录为 cwd 启动；测试数据与 tests/units/works/mock-io 随仓库版本追踪
+  - 异步稳定性
+    - 对事件读取采用轮询等待 agent.run.output 出现，避免竞态
+
+- 覆盖目标
+  - /api/tasks/:id/tree 不依赖 meta.json，仅返回层级结构
+  - run 流程事件 payload 包含 member、skill、providerId、model、content
+  - 事件文件 events-YYYYMMDD.jsonl 按时间顺序写入并可通过 WS 广播

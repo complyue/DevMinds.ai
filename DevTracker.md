@@ -39,7 +39,7 @@
 - **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
   - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）
   - 新增：M2 基础推进与状态查询已实现（run/status）
-    - POST /api/tasks/:id/run：进入 run，模拟产出 agent.run.\*，完成后切回 follow
+    - POST /api/tasks/:id/run：进入 run，调用真实 Agent（OpenAI 兼容，优先 openbuddy），产出 agent.run.\*，完成后切回 follow
     - GET /api/tasks/:id/status：返回 { state: idle|follow|run, clients, running }
   - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
@@ -82,7 +82,7 @@
 
 [/] **M2 交互功能开发**（当前重点）
 
-- AI Agent 集成：从 opencode 迁移核心 agent 逻辑
+- AI Agent 集成：基础单轮真实调用已接入（OpenAI 兼容，优先 openbuddy）；下一步接入流式输出与中断控制
 - 实时 WebSocket 架构提升：
   - 按 taskId 建立专用 WS 连接
   - 进程内 AI agent 协程 pub/sub 节点订阅
