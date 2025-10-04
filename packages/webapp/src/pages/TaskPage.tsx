@@ -16,16 +16,25 @@ function Toolbar({
   onRefresh,
   onRun,
   onCancel,
+  onToolRun,
+  toolArg,
+  setToolArg,
   state,
 }: {
   onRefresh: () => void;
   onRun: () => void;
   onCancel: () => void;
+  onToolRun: () => void;
+  toolArg: string;
+  setToolArg: (v: string) => void;
   state: 'idle' | 'follow' | 'run';
 }) {
   const running = state === 'run';
   return (
-    <div className="toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div
+      className="toolbar"
+      style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+    >
       <button onClick={onRefresh}>刷新</button>
       <button onClick={onRun} disabled={running}>
         推进
@@ -41,6 +50,23 @@ function Toolbar({
       <button disabled>新建子任务</button>
       <button onClick={onCancel} disabled={!running}>
         停止
+      </button>
+      {/* 工具触发：简单参数输入 + 触发按钮（运行中禁用） */}
+      <input
+        value={toolArg}
+        onChange={(e) => setToolArg(e.target.value)}
+        placeholder="工具参数..."
+        style={{
+          fontSize: 12,
+          padding: '4px 6px',
+          border: '1px solid #ddd',
+          borderRadius: 4,
+          minWidth: 180,
+        }}
+        disabled={running}
+      />
+      <button onClick={onToolRun} disabled={running || !toolArg.trim()}>
+        触发工具
       </button>
     </div>
   );
@@ -278,6 +304,29 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   const [warnings, setWarnings] = useState<any[]>([]);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [state, setState] = useState<'idle' | 'follow' | 'run'>('idle');
+  // 运行进度与状态提示
+  const [deltaCount, setDeltaCount] = useState(0);
+  const [cancelled, setCancelled] = useState(false);
+  const [outputReady, setOutputReady] = useState(false);
+  // 工具参数与提示
+  const [toolArg, setToolArg] = useState('');
+  // 统一 toast 提示队列（2s 自动消退）
+  const [toasts, setToasts] = useState<{ id: number; text: string; color?: string }[]>([]);
+  const pushToast = (text: string, color?: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((t) => [...t, { id, text, color }]);
+    setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+    }, 2000);
+  };
+  // WS 重连与退避
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectFailed, setReconnectFailed] = useState(false);
+  const connectRef = React.useRef<(() => void) | null>(null);
+  // 批量刷新队列，缓解长文本与高频增量的重排压力
+  const queueRef = React.useRef<Event[]>([]);
+  const flushTimerRef = React.useRef<number | null>(null);
 
   // Group events by spanId hierarchy
   const eventGroups = useMemo(() => {
@@ -315,8 +364,13 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
     fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&limit=200`)
       .then((r) => r.json())
       .then((res) => {
-        setEvents(res.items ?? []);
+        const items: Event[] = res.items ?? [];
+        setEvents(items);
         setWarnings(res.warnings ?? []);
+        // 初始化进度/取消/完成状态
+        setDeltaCount(items.filter((e) => e.type === 'agent.run.delta').length);
+        setCancelled(items.some((e) => e.type === 'agent.run.cancelled'));
+        setOutputReady(items.some((e) => e.type === 'agent.run.output'));
       })
       .catch(() => {
         setEvents([]);
@@ -324,37 +378,114 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
       });
   }, [taskId, date]);
 
-  // WebSocket connection for real-time updates
+  // WebSocket with exponential backoff, continuity recovery, and batched flush
   useEffect(() => {
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${encodeURIComponent(taskId)}`;
-    const websocket = new WebSocket(wsUrl);
+    let stopped = false;
 
-    websocket.onopen = () => {
-      console.log('WebSocket connected');
-      setWs(websocket);
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'message.appended' && message.payload?.taskId === taskId) {
-          // Append new event to the stream
-          setEvents((prev) => [...prev, message.payload]);
+    const flush = () => {
+      if (flushTimerRef.current != null) return;
+      flushTimerRef.current = window.setTimeout(() => {
+        flushTimerRef.current = null;
+        if (queueRef.current.length) {
+          // 批量追加，减少 setState 次数与重排
+          setEvents((prev) => [...prev, ...queueRef.current]);
+          const newDeltas = queueRef.current.filter((e) => e.type === 'agent.run.delta').length;
+          if (newDeltas && !outputReady && !cancelled) {
+            setDeltaCount((c) => c + newDeltas);
+          }
+          if (queueRef.current.some((e) => e.type === 'agent.run.cancelled')) {
+            setCancelled(true);
+          }
+          if (queueRef.current.some((e) => e.type === 'agent.run.output')) {
+            setOutputReady(true);
+          }
+          queueRef.current = [];
         }
-      } catch (err) {
-        console.warn('Failed to parse WebSocket message:', err);
-      }
+      }, 50);
     };
 
-    websocket.onclose = () => {
-      console.log('WebSocket disconnected');
-      setWs(null);
+    const connect = () => {
+      if (stopped) return;
+      setReconnecting(false);
+      setReconnectFailed(false);
+
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${encodeURIComponent(taskId)}`;
+      const websocket = new WebSocket(wsUrl);
+
+      websocket.onopen = () => {
+        setWs(websocket);
+        setReconnecting(false);
+        setReconnectAttempts(0);
+        // 重连成功后用 offset 补齐可能遗漏的事件
+        const offset = events.length;
+        fetch(
+          `/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&offset=${offset}&limit=500`,
+        )
+          .then((r) => r.json())
+          .then((res) => {
+            const items: Event[] = res.items ?? [];
+            if (items.length) {
+              queueRef.current.push(...items);
+              flush();
+            }
+          })
+          .catch(() => {});
+      };
+
+      websocket.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'message.appended' && msg.payload?.taskId === taskId) {
+            const ev: Event = msg.payload;
+            queueRef.current.push(ev);
+            flush();
+          }
+        } catch (err) {
+          console.warn('Failed to parse WebSocket message:', err);
+        }
+      };
+
+      websocket.onclose = () => {
+        setWs(null);
+        // 指数退避重连：1s → 2s → 4s → 8s（上限 10s），最多 6 次
+        setReconnecting(true);
+        setReconnectAttempts((prev) => {
+          const next = prev + 1;
+          const backoff = Math.min(1000 * Math.pow(2, prev), 10000);
+          if (next <= 6 && !stopped) {
+            window.setTimeout(() => {
+              connect();
+            }, backoff);
+          } else {
+            setReconnecting(false);
+            setReconnectFailed(true);
+          }
+          return next;
+        });
+      };
+
+      websocket.onerror = () => {
+        // 可选：记录错误日志
+      };
+
+      connectRef.current = connect;
     };
+
+    connect();
 
     return () => {
-      websocket.close();
+      stopped = true;
+      try {
+        ws?.close();
+      } catch {}
+      queueRef.current = [];
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
     };
-  }, [taskId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId, date]);
 
   // Poll backend status to reflect idle/follow/run
   useEffect(() => {
@@ -384,16 +515,41 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
             .then((res) => {
               setEvents(res.items ?? []);
               setWarnings(res.warnings ?? []);
-            });
+            })
+            .catch(() => pushToast('刷新失败', '#d73a49'));
         }}
         onRun={() => {
-          fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' }).catch(() => {});
+          fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' })
+            .then((r) => {
+              if (!r.ok) throw new Error('run failed');
+              pushToast('已触发运行', '#28a745');
+            })
+            .catch(() => pushToast('运行触发失败', '#d73a49'));
         }}
         onCancel={() => {
-          fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }).catch(
-            () => {},
-          );
+          fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+            .then((r) => {
+              if (!r.ok) throw new Error('cancel failed');
+              pushToast('已取消', '#d73a49');
+            })
+            .catch(() => pushToast('取消失败', '#d73a49'));
         }}
+        onToolRun={() => {
+          const body = JSON.stringify({ prompt: `工具触发: ${toolArg}` });
+          fetch(`/api/tasks/${encodeURIComponent(taskId)}/prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          })
+            .then((r) => {
+              if (!r.ok) throw new Error('tool failed');
+              pushToast('工具已触发', '#6f42c1');
+              setToolArg('');
+            })
+            .catch(() => pushToast('工具触发失败', '#d73a49'));
+        }}
+        toolArg={toolArg}
+        setToolArg={setToolArg}
         state={state}
       />
       <div className="content" style={{ padding: 12 }}>
@@ -401,17 +557,72 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            gap: 12,
             marginBottom: 8,
+            flexWrap: 'wrap',
           }}
         >
           <div style={{ fontSize: 12, color: '#6a737d' }}>{events.length} 个事件</div>
           {ws && <div style={{ fontSize: 12, color: '#28a745' }}>● 实时连接</div>}
-          {!ws && <div style={{ fontSize: 12, color: '#dc3545' }}>● 连接断开</div>}
+          {!ws && reconnecting && (
+            <div style={{ fontSize: 12, color: '#ff9800' }}>
+              ● 重连中（第 {reconnectAttempts} 次，退避中）
+            </div>
+          )}
+          {!ws && !reconnecting && reconnectFailed && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, color: '#dc3545' }}>● 重连失败</div>
+              <button
+                onClick={() => {
+                  setReconnectAttempts(0);
+                  setReconnectFailed(false);
+                  setReconnecting(true);
+                  connectRef.current?.();
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: '4px 8px',
+                  border: '1px solid #d1d5da',
+                  borderRadius: 4,
+                  background: '#f6f8fa',
+                  cursor: 'pointer',
+                }}
+              >
+                手动重试
+              </button>
+            </div>
+          )}
+
+          {/* 运行进度：基于已收 delta 片段数的粗略提示（不依赖 state=run，提高鲁棒性） */}
+          {!cancelled && !outputReady && deltaCount > 0 && (
+            <div style={{ fontSize: 12, color: '#6f42c1' }}>
+              进度：已收 {deltaCount} 片段（流式）
+            </div>
+          )}
+          {/* 取消态显式化 */}
+          {cancelled && (
+            <div style={{ fontSize: 12, color: '#d73a49' }}>
+              已取消（保留已有片段，不再继续合并）
+            </div>
+          )}
+          {/* 合并完成提示 */}
+          {outputReady && (
+            <div style={{ fontSize: 12, color: '#28a745' }}>已完成合并并输出最终内容</div>
+          )}
         </div>
         {warnings.length > 0 && (
           <div style={{ color: '#d73a49', marginBottom: 12, fontSize: 12 }}>
             ⚠ {warnings.length} 个警告
+          </div>
+        )}
+        {/* 统一 toast 提示 */}
+        {toasts.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {toasts.map((t) => (
+              <span key={t.id} style={{ fontSize: 12, color: t.color || '#6a737d' }}>
+                {t.text}
+              </span>
+            ))}
           </div>
         )}
         {eventGroups.map((group, i) => (

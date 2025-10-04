@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run all Case Tests under tests/cases/*
+# Run all case tests sequentially, fail on first error.
+# 可通过环境变量 PORT/TASK_ID/TEST_WS_DIR/MOCK_DIR 覆盖默认值。
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CASES_DIR="$ROOT_DIR/tests/cases"
 
-echo "[runner] root=$ROOT_DIR"
-if [[ ! -d "$CASES_DIR" ]]; then
-  echo "[runner][warn] no cases dir: $CASES_DIR"
-  exit 0
-fi
+run_case() {
+  local name="$1"
+  echo "================ CASE: $name ================"
+  bash "$ROOT_DIR/tests/cases/$name.sh"
+  echo "================ PASS: $name ================"
+}
 
-fail=0
-for case_script in "$CASES_DIR"/*.sh; do
-  [[ -e "$case_script" ]] || continue
-  echo "[runner] running: $case_script"
-  bash "$case_script" || { echo "[runner][fail] $case_script"; fail=1; }
-done
+# 目前已有：
+run_case "run-prompt-flow"
 
-if [[ "$fail" -eq 0 ]]; then
-  echo "[runner][ok] all case tests passed"
-else
-  echo "[runner][fail] some case tests failed"
-  exit 1
-fi
+# 新增：
+run_case "cancel-flow"
+run_case "delta-flow"
+run_case "ws-reconnect-flow"
+run_case "tool-cancel-flow"
+run_case "ws-reconnect-flow"
+
+echo "All case tests passed."

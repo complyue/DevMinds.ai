@@ -1,22 +1,41 @@
 import { test, expect } from '@playwright/test';
 
-test('WS 重连与断线指示：刷新/路由切换后恢复连接', async ({ page }) => {
-  // 首次进入任务页，应建立 WS 连接并显示指示
-  await page.goto('/tasks/E2E-WS');
-  await expect(page.getByText('● 实时连接')).toBeVisible({ timeout: 15_000 });
+const TASK_ID = process.env.TASK_ID || 'DEMO';
+const WEB_BASE = process.env.WEB_BASE || 'http://localhost:5173';
 
-  // 刷新页面，WS 重新建立，指示仍应为连接
-  await page.reload();
-  await expect(page.getByText('● 实时连接')).toBeVisible({ timeout: 15_000 });
+test.describe('WS 重连与事件补齐（端到端）', () => {
+  test('断后端 → 前端重连与恢复输出', async ({ page }) => {
+    // 打开任务页
+    await page.goto(`${WEB_BASE}/tasks/${encodeURIComponent(TASK_ID)}`, { waitUntil: 'domcontentloaded' });
 
-  // 切换到另一个任务，再切回，WS 重新建立
-  await page.goto('/tasks/OTHER');
-  await expect(page.getByText(/未指定 taskId/).first()).toBeHidden({ timeout: 500 }).catch(() => {});
-  await expect(page.getByText('● 实时连接')).toBeVisible({ timeout: 15_000 });
+    // 中间栏事件流面板（布局：左树/中流/右WIP）
+    const stream = page.locator('.layout .panel').nth(1).locator('.content');
 
-  await page.goto('/tasks/E2E-WS');
-  await expect(page.getByText('● 实时连接')).toBeVisible({ timeout: 15_000 });
+    // 点击“推进”触发运行
+    await page.getByRole('button', { name: '推进' }).click();
 
-  // 注：当前前端未实现断线退避（指数退避）策略，指示仅在 WS onclose 显示“● 连接断开”，
-  // 重连依赖于组件重挂载（刷新/路由切换）。详见 SETUP.md 记录。
+    // 等待出现进度提示（已收 delta 片段）或最终完成提示，任意其一即可
+    await expect.poll(async () => {
+      const txt = await stream.innerText();
+      return (/进度：已收 \d+ 片段/.test(txt) || /已完成合并并输出最终内容/.test(txt)) ? 'ok' : 'wait';
+    }, { timeout: 60000, intervals: [500] }).toBe('ok');
+
+    // 观察到断线后的“重连中”退避指示（amber）
+    await expect.poll(async () => {
+      const txt = await stream.innerText();
+      return /重连中（第 \d+ 次，退避中）/.test(txt) ? 'ok' : 'wait';
+    }, { timeout: 30000, intervals: [500] }).toBe('ok');
+
+    // 后端重启后应恢复为“实时连接”（green），或直接进入“已完成合并并输出最终内容”
+    await expect.poll(async () => {
+      const txt = await stream.innerText();
+      return (/实时连接/.test(txt) || /已完成合并并输出最终内容/.test(txt)) ? 'ok' : 'wait';
+    }, { timeout: 60000, intervals: [500] }).toBe('ok');
+
+    // 最终输出合并完成提示
+    await expect.poll(async () => {
+      const txt = await stream.innerText();
+      return /已完成合并并输出最终内容/.test(txt) ? 'ok' : 'wait';
+    }, { timeout: 30000, intervals: [500] }).toBe('ok');
+  });
 });

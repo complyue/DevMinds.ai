@@ -67,6 +67,7 @@
 
 - 内置模板：packages/backend/config/known-providers.yaml
 - 运行期覆盖：.minds/provider.yaml（字段将与模板合并）
+- 当前版本约定：Provider/Model 选择由开发者手工编辑 .minds 下的 YAML 配置完成，必要时由 agent 辅助；前端 UI 选择界面暂不提供，后续版本再考虑。
 - API
   - GET /api/providers：返回合并后的 provider 配置（密钥通过环境变量引用 apiKeyEnvVar）
   - POST /api/providers/test：基于环境变量测试连通性（当前为安全占位实现）
