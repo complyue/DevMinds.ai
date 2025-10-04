@@ -1,6 +1,6 @@
 # DevMinds.ai Development Tracker
 
-> **文件更新原则**: 此文档只反映当前最新状态，不记录历史沿袭和时间戳。工作进度用 [ ]/[/]/[x] 标记，当前摘要反映实际完成情况，下一步列出待办事项。
+> **文件更新原则**: 本页仅保留最新状态摘要；详细测试结果集中维护于 tests/\*/results.md（当前：tests/units/results.md；计划：tests/cases/results.md、tests/stories/results.md）。进度用 [ ]/[/]/[x] 标记；“下一步”列待办。
 
 - [ ] is holding
 - [/] is doing
@@ -45,38 +45,10 @@
   - 支持多客户端同时连接，错误时前端重连
 - **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件
 
-### TDD 验证结果
+### TDD 验证结果（摘要）
 
-**✅ workspace_init（工作区初始化）**
-
-- [x] .minds/ 与 .tasklogs/ 目录创建
-- [x] providers.json 模板生成（不含密钥）
-- [x] .gitignore 包含 .tasklogs/ 规则
-
-**✅ task_lifecycle（任务生命周期）**
-
-- [x] 任务目录结构：.minds/tasks/{taskId}/wip.md
-- [x] meta.json 初始化：.tasklogs/{taskId}/meta.json
-- [x] 事件文件生成：events-YYYYMMDD.jsonl
-
-**✅ conversation_round（会话轮次）**
-
-- [x] 事件按时序写入 JSONL 文件
-- [x] spanId/parentSpanId 层级结构
-- [x] UI 实时显示和历史回放
-
-**✅ subtask_tree（子任务树）**
-
-- [x] 父子目录结构：.tasklogs/{taskId}/subtasks/{childTaskId}/
-- [x] meta.json 父子关联正确
-- [x] UI 任务树展开和定位
-
-**✅ error_handling（错误处理）**
-
-- [x] 损坏 JSONL 行的友好处理和警告
-- [x] 缺失文件的降级显示
-- [x] API 返回详细错误信息（warnings 数组）
-- [x] 系统在异常情况下保持稳定
+- 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
+- 详细说明：tests/units/results.md；计划：tests/cases/results.md、tests/stories/results.md
 
 ### 下一步
 
