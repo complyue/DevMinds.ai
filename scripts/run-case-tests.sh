@@ -21,6 +21,7 @@ run_case "cancel-flow"
 run_case "delta-flow"
 run_case "ws-reconnect-flow"
 run_case "tool-cancel-flow"
+run_case "events-pagination-flow"
 run_case "ws-reconnect-flow"
 
 echo "All case tests passed."

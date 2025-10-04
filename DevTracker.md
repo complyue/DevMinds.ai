@@ -58,60 +58,17 @@
 
 **注意遵循 TDD 原则，E2E测试设计先行，以端到端测试驱动业务功能开发**
 
-[/] **M2 交互功能开发**（当前重点）
+[x] **M2 交互功能开发**（已完成，详见 tests/cases/results.md）
 
-- AI Agent 集成：基础单轮真实调用已接入（OpenAI 兼容，优先 openbuddy）
-- [x] 接入流式输出（server → WS → UI 逐片推送）
-- [x] 中断控制（前端 Cancel → 后端终止协程 → 状态回退）
-- 实时 WebSocket 架构提升：
-  - 按 taskId 建立专用 WS 连接
-  - 进程内 AI agent 协程 pub/sub 节点订阅
-  - 跨进程场景降级为 tail follow JSONL
-  - 前端 WS 重连机制
-- Web 端任务创建和管理界面
-- [x] 用户提交 prompt 触发 AI Agent 对话
-- [x] Web 端触发工具调用与中断控制（完善交互与状态提示）
-  - 子任务：
-    - UI：在 ConversationStream/WipSummaryPanel 增加 Run/Cancel/Tool 触发控件；运行中禁用 Run、显示取消中状态
-    - API：前端接线 POST /api/tasks/:id/run、/prompt、/cancel；统一错误提示
-    - 状态提示：显式 idle/run/follow 标签；取消成功/失败 toast
-  - 场景测试：
-    - tests/cases/cancel-flow.sh：启动 run → 触发 cancel → 验证事件序列包含 agent.run.delta（至少1片）、agent.run.cancelled、状态回退为 follow/idle
-  - 验收标准：
-    - UI 状态与按钮禁用逻辑正确；取消后 2s 内出现取消提示；WS 流中包含取消事件
-- [x] 增加场景测试：cancel-flow（验证 cancel 事件序列）、delta-flow（验证流式片段）
-  - 子任务：
-    - 设计完整事件断言：顺序、类型、关键字段（taskId、spanId、ts）
-    - 覆盖边界：短流（≤3片）、长流（≥50片）、网络抖动重连后事件连续性
-  - 脚本（待新增）：
-    - tests/cases/delta-flow.sh：触发 run，收集片段，断言片段累计长度与最终 output 一致
-  - 运行命令：
-    - 单场景：bash tests/cases/run-prompt-flow.sh；bash tests/cases/cancel-flow.sh；bash tests/cases/delta-flow.sh；bash tests/cases/ws-reconnect-flow.sh；bash tests/cases/tool-cancel-flow.sh
-    - 全部场景：bash scripts/run-case-tests.sh
-  - 验收标准：
-    - 三个场景均 0 退出码；results.md 有对应通过记录与关键指标（片段数/耗时）
-- [x] 前端提示与可视化：运行进度/取消状态显式化，delta 合并展示优化
-  - 子任务：
-    - 进度条/计数：基于已收片段数展示粗略进度；最终 output 到达后自动合并并替换占位
-    - 取消态：在流区域插入“已取消”标记；保留已收片段，不再继续合并
-    - 性能：大文本增量渲染，避免整段重排
-  - 验收标准：
-    - 长文本（≥100KB 输出）仍保持流畅渲染；合并后无重复片段；取消后不再追加
-- [x] WS 重连与退避策略优化（断线提示、自动恢复）
-  - 子任务：
-    - 指数退避：1000ms → 2000ms → 4000ms（上限 10s）；最大尝试次数后提示“请手动重试”
-    - 可视化：连接状态指示灯（green/amber/red），断线时顶栏提示
-    - 会话连续性：重连后从最后 offset 继续拉取 events（降级到 HTTP 拉取补齐）
-  - 验收标准：
-    - 本地断网 10s、后端重启均可在 30s 内恢复并补齐缺片段；无重复/乱序
+### M3 目标（草案）
 
-- [ ] 事件分页与日期范围在前端加入 UI 支持
-  - 子任务：
-    - 控件：limit、dateFrom/dateTo 输入；对接 GET /api/tasks/:id/events
-    - 交互：切换分页不丢失当前选择的 task；日期范围与分页可组合
-    - 性能：分页滚动加载，避免一次性渲染大量事件
-  - 验收标准：
-    - 不同分页/日期组合下事件条目与后端响应一致；快速切换无明显卡顿
+- 多任务管理与创建：新建任务、重命名、删除，批量操作与任务切换优化
+- 会话持久化与索引：事件归档、全文检索、标签与收藏
+- 权限与协作：基础用户/角色模型，任务共享与访问控制（MVP）
+- 工具执行增强：真实工具接口对接、参数校验、沙箱与安全审计日志
+- Provider 配置 UX（后续版）：YAML 辅助编辑器与连通性诊断面板（沿用手工配置为主）
+- 性能与稳定性：大事件列表滚动分页、内存占用优化、WS 压测与退避策略调优
+- CI/CD 与质量：将现有 E2E 场景纳入 CI、错误监控与告警、结果自动汇总到 tests/\*/results.md
 
 **技术架构重点**：
 
@@ -139,5 +96,5 @@
   - curl -X POST http://localhost:5175/api/tasks/DEMO/cancel
   - curl "http://localhost:5175/api/tasks/DEMO/events?limit=10"
 - 场景测试:
-  - 单场景：bash tests/cases/run-prompt-flow.sh；bash tests/cases/cancel-flow.sh；bash tests/cases/delta-flow.sh；bash tests/cases/ws-reconnect-flow.sh
+  - 单场景：bash tests/cases/run-prompt-flow.sh；bash tests/cases/cancel-flow.sh；bash tests/cases/delta-flow.sh；bash tests/cases/ws-reconnect-flow.sh；bash tests/cases/tool-cancel-flow.sh；bash tests/cases/events-pagination-flow.sh
   - 全部场景：bash scripts/run-case-tests.sh

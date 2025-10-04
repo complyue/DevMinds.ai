@@ -327,6 +327,41 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   // 批量刷新队列，缓解长文本与高频增量的重排压力
   const queueRef = React.useRef<Event[]>([]);
   const flushTimerRef = React.useRef<number | null>(null);
+  // 事件分页与日期范围过滤
+  const [limit, setLimit] = useState<number>(200);
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [offset, setOffset] = useState<number>(0);
+
+  const fetchEvents = (off: number) => {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    params.set('offset', String(off));
+    params.set('date', date);
+    if (dateFrom.trim()) params.set('dateFrom', dateFrom.trim());
+    if (dateTo.trim()) params.set('dateTo', dateTo.trim());
+    fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?${params.toString()}`)
+      .then((r) => r.json())
+      .then((res) => {
+        const items: Event[] = res.items ?? [];
+        setEvents(items);
+        setWarnings(res.warnings ?? []);
+        // 初始化进度/取消/完成状态
+        setDeltaCount(items.filter((e) => e.type === 'agent.run.delta').length);
+        setCancelled(items.some((e) => e.type === 'agent.run.cancelled'));
+        setOutputReady(items.some((e) => e.type === 'agent.run.output'));
+        setOffset(off);
+      })
+      .catch(() => {
+        setEvents([]);
+        setWarnings([{ reason: 'fetch failed' }]);
+      });
+  };
+
+  const applyFilters = () => {
+    setOffset(0);
+    fetchEvents(0);
+  };
 
   // Group events by spanId hierarchy
   const eventGroups = useMemo(() => {
@@ -361,21 +396,9 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   }, [events]);
 
   useEffect(() => {
-    fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&limit=200`)
-      .then((r) => r.json())
-      .then((res) => {
-        const items: Event[] = res.items ?? [];
-        setEvents(items);
-        setWarnings(res.warnings ?? []);
-        // 初始化进度/取消/完成状态
-        setDeltaCount(items.filter((e) => e.type === 'agent.run.delta').length);
-        setCancelled(items.some((e) => e.type === 'agent.run.cancelled'));
-        setOutputReady(items.some((e) => e.type === 'agent.run.output'));
-      })
-      .catch(() => {
-        setEvents([]);
-        setWarnings([{ reason: 'fetch failed' }]);
-      });
+    // 初次加载按当前过滤参数拉取
+    fetchEvents(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, date]);
 
   // WebSocket with exponential backoff, continuity recovery, and batched flush
@@ -416,11 +439,15 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
         setWs(websocket);
         setReconnecting(false);
         setReconnectAttempts(0);
-        // 重连成功后用 offset 补齐可能遗漏的事件
-        const offset = events.length;
-        fetch(
-          `/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&offset=${offset}&limit=500`,
-        )
+        // 重连成功后按当前过滤用 offset 补齐遗漏事件
+        const curOffset = offset + events.length;
+        const params = new URLSearchParams();
+        params.set('limit', '500');
+        params.set('offset', String(curOffset));
+        params.set('date', date);
+        if (dateFrom.trim()) params.set('dateFrom', dateFrom.trim());
+        if (dateTo.trim()) params.set('dateTo', dateTo.trim());
+        fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?${params.toString()}`)
           .then((r) => r.json())
           .then((res) => {
             const items: Event[] = res.items ?? [];
@@ -510,13 +537,11 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
     <div className="panel">
       <Toolbar
         onRefresh={() => {
-          fetch(`/api/tasks/${encodeURIComponent(taskId)}/events?date=${date}&limit=200`)
-            .then((r) => r.json())
-            .then((res) => {
-              setEvents(res.items ?? []);
-              setWarnings(res.warnings ?? []);
-            })
-            .catch(() => pushToast('刷新失败', '#d73a49'));
+          try {
+            applyFilters();
+          } catch {
+            pushToast('刷新失败', '#d73a49');
+          }
         }}
         onRun={() => {
           fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' })
@@ -562,6 +587,51 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
             flexWrap: 'wrap',
           }}
         >
+          {/* 过滤与分页控件 */}
+          <label style={{ fontSize: 12, color: '#6a737d' }}>
+            limit
+            <input
+              type="number"
+              min={10}
+              max={1000}
+              step={10}
+              value={limit}
+              onChange={(e) => setLimit(Math.max(10, Math.min(1000, Number(e.target.value) || 10)))}
+              style={{ marginLeft: 6, width: 80 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: '#6a737d' }}>
+            dateFrom
+            <input
+              type="text"
+              placeholder="YYYYMMDD"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ marginLeft: 6, width: 110 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: '#6a737d' }}>
+            dateTo
+            <input
+              type="text"
+              placeholder="YYYYMMDD"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ marginLeft: 6, width: 110 }}
+            />
+          </label>
+          <button
+            onClick={applyFilters}
+            style={{
+              fontSize: 12,
+              padding: '4px 8px',
+              border: '1px solid #d1d5da',
+              borderRadius: 4,
+              background: '#f6f8fa',
+            }}
+          >
+            应用过滤
+          </button>
           <div style={{ fontSize: 12, color: '#6a737d' }}>{events.length} 个事件</div>
           {ws && <div style={{ fontSize: 12, color: '#28a745' }}>● 实时连接</div>}
           {!ws && reconnecting && (
@@ -625,6 +695,41 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
             ))}
           </div>
         )}
+        {/* 翻页控件 */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <button
+            onClick={() => {
+              const nextOff = Math.max(0, offset - limit);
+              fetchEvents(nextOff);
+            }}
+            disabled={offset <= 0}
+            style={{
+              fontSize: 12,
+              padding: '4px 8px',
+              border: '1px solid #d1d5da',
+              borderRadius: 4,
+              background: '#f6f8fa',
+            }}
+          >
+            上一页
+          </button>
+          <button
+            onClick={() => {
+              const nextOff = offset + limit;
+              fetchEvents(nextOff);
+            }}
+            style={{
+              fontSize: 12,
+              padding: '4px 8px',
+              border: '1px solid #d1d5da',
+              borderRadius: 4,
+              background: '#f6f8fa',
+            }}
+          >
+            下一页
+          </button>
+          <span style={{ fontSize: 12, color: '#6a737d' }}>offset: {offset}</span>
+        </div>
         {eventGroups.map((group, i) => (
           <EventGroupComponent key={group.spanId} group={group} />
         ))}
