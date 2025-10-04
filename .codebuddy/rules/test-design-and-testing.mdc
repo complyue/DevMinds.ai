@@ -25,6 +25,12 @@ alwaysApply: true
 - 测试代码集中在 tests/* 与相关脚本目录；业务包内不得引入测试依赖或测试专用逻辑。
 - 运行时（production/dev）不加载测试专用模块或数据。
 
+### 运行时工作区隔离（.minds）
+- 测试代码与脚本不得触及产品代码的 .minds 目录树（例如 packages/*/.minds 或仓库根 .minds）。
+- 所有测试运行必须在测试工作区下进行（例如 tests/units/works/unit-ws 作为 cwd），仅允许在该工作区的 .minds 下读写数据。
+- 测试脚本必须通过 cwd 或显式路径确保 .minds 写入指向测试工作区；严禁将测试数据写入业务包路径。
+- DEVMINDS_MOCK_DIR 必须指向 tests 下的 mock 目录（如 tests/units/works/mock-io），不接受指向产品路径。
+
 ### 变更与清理
 - 当接口或行为更新，需同步更新或删除不再适用的测试用例、测试数据与脚本。
 - 不保留“备份/改名”式文件；使用 git 历史进行回溯。
@@ -34,6 +40,7 @@ alwaysApply: true
 - 与当前设计一致：删除/更新废弃测试与数据；无备份/改名文件残留。
 - 测试通过且覆盖目标达到。
 - 不引入明文密钥；mock 使用 DEVMINDS_MOCK_DIR 等既有机制。
+- 测试运行以 tests 工作区为 cwd；不修改 packages/*/.minds 或仓库根 .minds（仅允许 tests 工作区的 .minds）。
 
 ## 例外处理
 - 如确需在业务代码中临时加入测试钩子（绝对必要场景），必须：
