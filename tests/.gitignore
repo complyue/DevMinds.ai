@@ -1,2 +1,10 @@
 
+# Playwright runs artifacts (isolated per-run)
+e2e/.runs/
+e2e/.cache/
+# Ignore any local reports/logs under tests
+reports/
+logs/
+
+# Hidden logs
 .logs/

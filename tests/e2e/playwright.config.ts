@@ -4,6 +4,9 @@ export default defineConfig({
   testDir: '.',
   timeout: 60_000,
   retries: 0,
+  outputDir: process.env.RUN_ID
+    ? `tests/e2e/.runs/${process.env.RUN_ID}`
+    : `tests/e2e/.runs/latest`,
   use: {
     baseURL: 'http://localhost:5173',
     headless: false,

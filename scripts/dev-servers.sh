@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="/ws/AiWorks/DevMinds.ai"
+export DEVMINDS_MOCK_DIR="/ws/AiWorks/DevMinds.ai/tests/units/works/mock-io"
 
 is_port_busy() {
   local port="$1"

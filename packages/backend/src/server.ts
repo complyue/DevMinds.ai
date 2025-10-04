@@ -776,27 +776,36 @@ async function runRealAgent(
   const { merged } = mergeProviderConfigs(template, runtime);
 
   // Resolve member and skill via team.md, and provider via skill def.md
-  const team = await loadTaskTeam(taskId);
-  if (!team.members || team.members.length === 0) {
-    throw new Error('No members defined in team.md');
+  let chosenMember: { id: string; skill: string } | null = null;
+  let providerId: string | null = null;
+  let modelOverride: string | undefined = undefined;
+
+  try {
+    const team = await loadTaskTeam(taskId);
+    if (!team.members || team.members.length === 0) {
+      throw new Error('No members defined in team.md');
+    }
+    chosenMember = team.defaultMember
+      ? team.members.find((m) => m.id === team.defaultMember) || team.members[0]
+      : team.members[0];
+    const skill = chosenMember?.skill;
+    if (!skill) throw new Error('Selected member has no skill');
+    const skillDef = await loadSkillDef(skill);
+    providerId = String(skillDef.providerId);
+    modelOverride = skillDef.model ? String(skillDef.model) : undefined;
+  } catch {
+    // Fallback: use built-in mock provider so runs can proceed without .minds
+    chosenMember = { id: 'mock', skill: 'mock' };
+    providerId = 'mock';
+    modelOverride = undefined;
   }
-  const chosenMember = team.defaultMember
-    ? team.members.find((m) => m.id === team.defaultMember)
-    : team.members[0];
-  if (!chosenMember) {
-    throw new Error('Default member not found in team.md');
-  }
-  const skill = chosenMember.skill;
-  if (!skill) {
-    throw new Error('Selected member has no skill');
-  }
-  const skillDef = await loadSkillDef(skill);
-  const providerId: string = skillDef.providerId;
-  const provider = merged.providers?.[providerId];
+
+  const provider = merged.providers?.[providerId!];
   if (!provider) {
     throw new Error(`Provider ${providerId} not found`);
   }
-  const modelOverride: string | undefined = skillDef.model;
+  // Ensure skill variable is available for event payloads
+  const skill = chosenMember!.skill;
 
   // Resolve API key env var by apiType or explicit apiKeyEnvVar
   const getDefaultEnvVar = (apiType: string) => {

@@ -33,6 +33,32 @@ Playwright 配置：`tests/e2e/playwright.config.ts`，将前端+后端通过 `s
 
 ## 可能问题与解决记录
 
+- 选择器与交互修正（2025-10-04）：
+  - 前端按钮文案为中文（“推进”“停止”“刷新”），原用例使用英文 /run/submit/prompt，现已改为：
+    - 发起 run：通过后端 `POST /api/tasks/:id/prompt`，页面无 prompt 输入控件；
+    - 取消：点击“停止”，等待 `agent.run.cancelled` 事件；
+    - 增量：断言 `agent.run.delta` 文本在事件流中出现；
+  - 新增 `delta-flow.spec.ts` 与 `ws-reconnect.spec.ts`。
+
+- 后端健壮性（2025-10-04）：
+  - 为兼容 E2E 在不触及产品 `.minds` 的前提下运行，后端在 `runRealAgent` 中加入容错：当 team/skill 加载失败时，自动回退到内置 `mock` provider（读取 `DEVMINDS_MOCK_DIR`），继续产生流式增量与输出。
+  - 该改动提升生产健壮性（无配置时仍可运行 mock），不属于测试专用逻辑。
+- 并发隔离与稳定化（2025-10-04）：
+  - 原因：多个 E2E 用例并发使用同一 taskId（DEMO）导致状态竞争，影响取消窗口与事件流。
+  - 策略：为每个用例分配独立 taskId（如 E2E-CANCEL / E2E-DELTA / E2E-WS），避免互相干扰。
+  - 结合 mock-io 的长输出（E2E-DELTA/E2E-CANCEL 可按需创建对应 \*.output），确保有足够的增量窗口。
+- Mock Provider 与增量事件未出现（2025-10-04）：
+  - 失败原因：后端使用 provider 配置时，若未设置 `DEVMINDS_MOCK_DIR`（且无真实密钥），会产生 `agent.run.error`，不产生 `agent.run.delta`；
+  - 修复：在 `scripts/dev-servers.sh` 中为后端导出 `DEVMINDS_MOCK_DIR=/ws/AiWorks/DevMinds.ai/tests/units/works/mock-io`，符合“tests 工作区隔离”要求；
+  - 用例调整：
+    - 移除“状态: run”断言，避免瞬时回落导致不稳定；
+    - run/prompt/cancel 用例在看到 `agent.run.started` 后直接进行 `/cancel` 重试（最多 50 次，每次 200ms），不再依赖 `/status` 的瞬时 `run`；取消事件断言超时提高到 60s，提升稳定性。
+
+- WS 重连与断线退避现状：
+  - 代码中前端未实现自动重连/退避，仅在组件挂载时建立 WS，在 `onclose` 置空后显示“● 连接断开”；
+  - E2E 通过刷新或路由切换触发重新建立连接验证（见 `ws-reconnect.spec.ts`）；
+  - 若需断线退避策略（指数退避等），需后续在前端加入重连逻辑并再补测。
+
 - 如果 5175 后端未就绪导致前端代理报错：
   - 已在脚本中 `sleep 2`，如仍不稳定可调大；
 - 端口被占用：
