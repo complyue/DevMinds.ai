@@ -10,8 +10,10 @@
     "format:manifests": "sort-package-json package.json packages/*/package.json",
     "format:rootdocs": "scripts/format-root-docs.sh",
     "lint": "pnpm -r run lint",
+    "playwright": "playwright",
     "preview:web": "pnpm --filter @devminds/webapp preview",
     "test": "vitest run",
+    "test:e2e": "playwright test --headed --config tests/e2e/playwright.config.ts",
     "typecheck": "pnpm -r run typecheck",
     "update-models": "node scripts/update-models.js"
   },
@@ -29,6 +31,8 @@
     "packages/*/src/**/*.{ts,tsx,js,jsx,yaml,yml,css,scss,md,mdx,html,htm}": "prettier --write --ignore-unknown"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/node": "^24.6.2",
     "husky": "^9.1.7",
     "js-yaml": "^4.1.0",
     "lint-staged": "^15.5.2",
