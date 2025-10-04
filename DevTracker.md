@@ -34,7 +34,6 @@
   - TaskTreePanel - 树形视图，展开/折叠，任务选择，状态指示
   - ConversationStream - spanId 层级折叠，WebSocket 实时订阅，长文本折叠，实时事件追加
   - WipSummaryPanel - Markdown 渲染，代码高亮，响应式样式
-  - SettingsProviders - Provider 配置界面，连通性测试
   - 错误处理 - 友好的降级显示和状态提示
 - **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
   - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）

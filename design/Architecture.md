@@ -60,18 +60,18 @@
 - 兼容协议：OpenAI/Anthropic 风格（/chat/completions、/messages 等），支持自定义 baseUrl 和 APIKEY 的环境变量名。
 - 敏感信息：APIKEY 等敏感信息一律来源于环境变量，变量名由内置模板或自定义配置指定
 - 配置来源：
-  - .minds/config/providers.json（工作区级优先）
+  - .minds/provider.yaml（工作区级优先）
   - 软件内置模板
 - 模板与覆写：
   - 内置模板（openai, anthropic, azure-openai, together, groq 等）
   - 可自定义 provider 别名、模型清单、默认参数（temperature、max_tokens 等）
-- 健康检查：
-  - 一键连通性测试接口与 UI 按钮
+- 健康诊断：服务端连通性诊断接口（无前端 UI）
 
 ## 6. Web 服务与安全
 
 - Fastify 路由：
-  - /api/workspace, /api/tasks, /api/skills, /api/providers, /api/agent, /api/events (WS/SSE)
+  - /api/workspace, /api/tasks, /api/agent, /api/events (WS/SSE)
+  - 注：provider/skillset/task-team 配置不暴露 HTTP 或 CLI；M3 通过内部 Agent 工具在 .minds/ 下读写
 - 鉴权：
   - CLI：Bearer Token（启动生成或从 env 读取）
   - Web 浏览器：基于会话的 Cookie 鉴权（未鉴权重定向到登录/鉴权页面；WS/SSE 连接继承会话 Cookie）

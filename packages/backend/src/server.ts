@@ -378,94 +378,15 @@ app.get('/api/tasks/:id/events', async (c) => {
 });
 
 /**
- * GET /api/providers - Read providers config
- * Returns merged config with runtime overrides from .minds/provider.yaml when available.
+ * [removed] Provider config HTTP routes per design:
+ * - No public routes or CLI interfaces for provider config.
+ * - Config will be managed via internal agentic tools in M3, operating on .minds/provider.yaml.
  */
-app.get('/api/providers', async (c) => {
-  const template = await loadProviderTemplate();
-  const runtime = await loadRuntimeProviderConfig();
-  const { merged, hadRuntime } = mergeProviderConfigs(template, runtime);
-  return c.json({ ok: true, config: merged, isBuiltIn: !hadRuntime, hasRuntime: hadRuntime });
-});
 
 /**
- * POST /api/providers/test - Test provider connectivity (no persistence)
- * Uses merged config so runtime overrides are respected.
+ * [removed] Provider connectivity HTTP route per design:
+ * - Connectivity diagnostics will be provided via internal agentic tools in M3.
  */
-app.post('/api/providers/test', async (c) => {
-  try {
-    const body = await c.req.json();
-    const { providerId, model } = body;
-
-    if (!providerId) {
-      return c.json({ ok: false, message: 'Missing providerId' }, 400);
-    }
-
-    // Use merged provider configuration
-    const template = await loadProviderTemplate();
-    const runtime = await loadRuntimeProviderConfig();
-    const { merged } = mergeProviderConfigs(template, runtime);
-    const provider = merged.providers?.[providerId];
-    if (!provider) {
-      return c.json({ ok: false, message: `Provider ${providerId} not found` }, 404);
-    }
-
-    // Get API key from environment variable (with defaults based on apiType)
-    const getDefaultEnvVar = (apiType: string) => {
-      switch (apiType) {
-        case 'openai':
-          return 'OPENAI_API_KEY';
-        case 'anthropic':
-          return 'ANTHROPIC_AUTH_TOKEN';
-        default:
-          return null;
-      }
-    };
-
-    const envVar = provider.apiKeyEnvVar || getDefaultEnvVar(provider.apiType);
-    if (!envVar) {
-      return c.json({
-        ok: false,
-        message: `No environment variable specified for apiType ${provider.apiType}`,
-      });
-    }
-
-    const apiKey = process.env[envVar];
-    if (!apiKey) {
-      return c.json({
-        ok: false,
-        message: `Environment variable ${envVar} not set`,
-      });
-    }
-
-    // Simple connectivity test - just check if we can reach the endpoint
-    try {
-      const testUrl = new URL(provider.baseUrl);
-      const isReachable = testUrl.protocol === 'https:' || testUrl.protocol === 'http:';
-
-      if (!isReachable) {
-        return c.json({ ok: false, message: 'Invalid URL format' });
-      }
-
-      // Mock test result for now - in real implementation would make actual API call
-      return c.json({
-        ok: true,
-        result: {
-          connected: true,
-          latency: Math.floor(Math.random() * 200) + 50,
-          model: model || provider.models[0],
-          apiType: provider.apiType,
-          baseUrl: provider.baseUrl,
-          message: `Connection test successful for ${providerId} (mocked)`,
-        },
-      });
-    } catch (err) {
-      return c.json({ ok: false, message: 'Invalid baseUrl' }, 400);
-    }
-  } catch (err) {
-    return c.json({ ok: false, message: 'Test failed' }, 500);
-  }
-});
 
 // HTTP + WS server
 const httpServer = createServer((req, res) => {

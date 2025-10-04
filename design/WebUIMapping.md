@@ -8,7 +8,6 @@
 
 - /start：开始页（最近任务、快速入口、新建任务）
 - /tasks/:taskId：会话工作台（左：任务树；中：事件流；右：WIP 摘要）
-- /settings/providers：模型与 Provider 配置与连通性测试
 
 核心组件
 
@@ -44,16 +43,6 @@
   - M2：停止（POST /api/tasks/:id/stop）、新建子任务（POST /api/tasks）
 - 状态：loading, error toast
 
-5. ProviderConfigForm（设置页）
-
-- 职责：从 providers.json 读取清单，不展示或保存真实密钥
-- 交互：连通性测试（POST /api/providers/test），仅临时使用输入的密钥
-
-6. CommandPalette（可选）
-
-- 映射 TUI 的 commands/ 完成度：低优先级
-- 后续可用快捷键召回，触发现有 REST 操作
-
 呈现规范与渲染细节
 
 - Markdown：支持代码高亮与差异渲染（diff）
@@ -87,5 +76,5 @@
 里程碑落地检查
 
 - M1：只读渲染与回放，覆盖 design/cases 下的所有“读取类”验证点
-- M2：停止/新建子任务；Provider 测试；中断事件贯通
+- M2：停止/新建子任务；中断事件贯通
 - M3：工具触发与更丰富的命令面板

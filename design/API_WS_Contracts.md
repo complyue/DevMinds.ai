@@ -69,12 +69,12 @@ POST /api/tasks
 
 GET /api/providers
 
-- 描述：读取 providers.json（不含密钥），用于设置页展示
-- 响应：{ ok: true, providers: any[] }
+- 描述：读取并合并 provider.yaml（不含密钥），供后端与 Agent/CLI 使用；前端不提供相关展示 UI
+- 响应：{ ok: true, config: any, isBuiltIn?: boolean, hasRuntime?: boolean }
 
 POST /api/providers/test
 
-- 描述：连通性测试；不保存密钥，仅临时校验
+- 描述：服务端连通性诊断接口；不保存密钥，仅基于环境变量校验；前端不提供测试 UI
 - 请求体：{ name: string, baseUrl?: string, apiKey?: string, model?: string }
 - 响应：{ ok: true, latencyMs?: number, model?: string } 或 { ok: false, message: string }
 
@@ -116,6 +116,6 @@ URL: /ws
 
 与 opencode 的映射（参考，不含路径）
 
-- providers/\* → /api/providers, /api/providers/test
+- providers/\* → /api/providers, /api/providers/test（用于后端/Agent 辅助，不用于 WebUI 展示）
 - server/session/\* → /api/tasks/:id/events 与 WS 的事件封装
 - tool/\* → 未来在 M3 接入工具触发时使用

@@ -11,9 +11,6 @@ export default function StartPage() {
           <Link to="/tasks/DEMO">/tasks/DEMO</Link>
         </li>
       </ul>
-      <p>
-        设置：<Link to="/settings/providers">Providers</Link>
-      </p>
     </div>
   );
 }

@@ -16,8 +16,7 @@
   - 技术栈：React + Vite + TypeScript
   - 主要页面：
     - src/pages/TaskPage.tsx：三栏布局（任务树 / 事件流 / WIP 摘要），按 taskId 连接 /ws/:taskId
-    - src/pages/SettingsProviders.tsx：Provider 配置读取与连接性测试
-    - src/main.tsx：路由（/tasks/:taskId、/settings/providers）
+    - src/main.tsx：路由（/tasks/:taskId）
 
 ## 2. 运行与调试
 
@@ -67,7 +66,7 @@
 
 - 内置模板：packages/backend/config/known-providers.yaml
 - 运行期覆盖：.minds/provider.yaml（字段将与模板合并）
-- 当前版本约定：Provider/Model 选择由开发者手工编辑 .minds 下的 YAML 配置完成，必要时由 agent 辅助；前端 UI 选择界面暂不提供，后续版本再考虑。
+- 当前版本约定：仅通过 .minds/provider.yaml 手工配置 Provider/Model；必要时可由 Agent 辅助更新。前端不提供任何 Provider/模型相关的设置 UI。
 - API
   - GET /api/providers：返回合并后的 provider 配置（密钥通过环境变量引用 apiKeyEnvVar）
   - POST /api/providers/test：基于环境变量测试连通性（当前为安全占位实现）

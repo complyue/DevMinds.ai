@@ -9,7 +9,7 @@
 
 1. 接口与协议层（优先）
 
-- Provider/模型清单与请求封装的通用思路
+- 后端/Agent 侧的模型清单与请求封装的通用思路（配置来源为 .minds/provider.yaml；不提供前端 UI）
 - 事件类型与 span 折叠的展示经验
 
 2. 工具与适配层（可选）
@@ -28,7 +28,7 @@
 
 集成策略
 
-- 以 adapter 适配：将 opencode 的能力包裹为符合 DevMinds.ai 契约的 provider/tool
+- 以 adapter 适配：将 opencode 的能力包裹为符合 DevMinds.ai 契约的后端 provider/tool（仅用于后端/Agent；前端不展示）
 - 差异点记录在本文件，必要时在 PR 模板中强制评审“是否跨越边界”
 
 验证与回退
