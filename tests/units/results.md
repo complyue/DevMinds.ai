@@ -32,3 +32,10 @@
 - [x] 缺失文件的降级显示
 - [x] API 返回详细错误信息（warnings 数组）
 - [x] 系统在异常情况下保持稳定
+
+## 🧩 M2 交互功能（实现状态与覆盖计划）
+
+- [x] 流式输出事件 agent.run.delta（后端生成与前端接收已实现）
+  - 用例覆盖：场景测试未校验 delta，计划在 tests/cases 增量覆盖
+- [x] 取消接口 POST /api/tasks/:id/cancel（后端 AbortController 与前端停止按钮已接入）
+  - 用例覆盖：待新增 cancel-flow 场景测试验证事件序列

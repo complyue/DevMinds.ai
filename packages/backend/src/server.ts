@@ -509,13 +509,22 @@ type TaskNode = {
   clients: Set<WebSocket>;
   watchers: Map<string, ReturnType<typeof watch>>;
   running?: boolean;
+  abortCtrl?: AbortController;
+  cancelRequested?: boolean;
 };
 const taskNodes = new Map<string, TaskNode>();
 
 function getOrCreateTaskNode(taskId: string): TaskNode {
   let node = taskNodes.get(taskId);
   if (!node) {
-    node = { state: 'idle', clients: new Set(), watchers: new Map(), running: false };
+    node = {
+      state: 'idle',
+      clients: new Set(),
+      watchers: new Map(),
+      running: false,
+      abortCtrl: undefined,
+      cancelRequested: false,
+    };
     taskNodes.set(taskId, node);
   }
   return node;
@@ -756,7 +765,11 @@ async function appendEventToFile(taskId: string, ev: EventT) {
 }
 
 // Real agent runner
-async function runRealAgent(taskId: string, promptOverride?: string): Promise<void> {
+async function runRealAgent(
+  taskId: string,
+  promptOverride?: string,
+  abortCtrl?: AbortController,
+): Promise<void> {
   // Load merged provider config
   const template = await loadProviderTemplate();
   const runtime = await loadRuntimeProviderConfig();
@@ -841,7 +854,45 @@ async function runRealAgent(taskId: string, promptOverride?: string): Promise<vo
     content = await callProvider(provider.apiType, { provider, model, prompt, apiKey });
   }
 
-  // Emit agent.run.output event with actual providerId
+  // Stream delta before final output (simulated chunking)
+  const chunks: string[] = [];
+  const CHUNK_SIZE = 80;
+  for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+    chunks.push(content.slice(i, i + CHUNK_SIZE));
+  }
+  for (const delta of chunks) {
+    if (abortCtrl?.signal.aborted) {
+      const evCancelled: EventT = {
+        ts: new Date().toISOString(),
+        taskId,
+        type: 'agent.run.cancelled',
+        payload: { member: chosenMember.id, skill, providerId, model, message: 'run cancelled' },
+      };
+      await appendEventToFile(taskId, evCancelled);
+      broadcastToTask(taskId, {
+        ts: new Date().toISOString(),
+        type: 'message.appended',
+        payload: evCancelled,
+      });
+      return;
+    }
+    const evDelta: EventT = {
+      ts: new Date().toISOString(),
+      taskId,
+      type: 'agent.run.delta',
+      payload: { member: chosenMember.id, skill, providerId, model, delta },
+    };
+    await appendEventToFile(taskId, evDelta);
+    broadcastToTask(taskId, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: evDelta,
+    });
+    // small delay to simulate streaming pace
+    await new Promise((r) => setTimeout(r, 30));
+  }
+
+  // Emit final output event with full content
   const nowIso = new Date().toISOString();
   const evOut: EventT = {
     ts: nowIso,
@@ -861,6 +912,8 @@ async function startRun(taskId: string, promptOverride?: string) {
   const node = getOrCreateTaskNode(taskId);
   if (node.running) return; // already running
   node.running = true;
+  node.cancelRequested = false;
+  node.abortCtrl = new AbortController();
   stopAllWatchersForTask(taskId);
   node.state = 'run';
 
@@ -885,7 +938,7 @@ async function startRun(taskId: string, promptOverride?: string) {
 
       // run agent once
       try {
-        await runRealAgent(taskId, promptOverride);
+        await runRealAgent(taskId, promptOverride, node.abortCtrl);
       } catch (err: any) {
         const evErr: EventT = {
           ts: new Date().toISOString(),
@@ -918,6 +971,8 @@ async function startRun(taskId: string, promptOverride?: string) {
       // switch back to follow
       node.running = false;
       node.state = 'idle';
+      node.abortCtrl = undefined;
+      node.cancelRequested = false;
       await ensureFollow(taskId);
     }
   })();
@@ -944,6 +999,34 @@ app.post('/api/tasks/:id/prompt', async (c) => {
   const prompt = typeof body?.prompt === 'string' ? body.prompt : undefined;
   startRun(taskId, prompt);
   return c.json({ ok: true, message: 'prompt run started' });
+});
+
+/**
+ * POST /api/tasks/:id/cancel - request to cancel current run (if any)
+ */
+app.post('/api/tasks/:id/cancel', async (c) => {
+  const taskId = c.req.param('id');
+  const node = getOrCreateTaskNode(taskId);
+  if (node.running && node.abortCtrl && !node.abortCtrl.signal.aborted) {
+    node.cancelRequested = true;
+    // emit request event
+    const evReq: EventT = {
+      ts: new Date().toISOString(),
+      taskId,
+      type: 'agent.run.cancel.requested',
+      payload: { message: 'cancel requested' },
+    };
+    await appendEventToFile(taskId, evReq);
+    broadcastToTask(taskId, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: evReq,
+    });
+
+    node.abortCtrl.abort();
+    return c.json({ ok: true, message: 'cancel sent' });
+  }
+  return c.json({ ok: false, message: 'no running task' }, 400);
 });
 
 // GET /api/tasks/:id/status - report current node state

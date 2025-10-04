@@ -15,10 +15,12 @@ type Event = {
 function Toolbar({
   onRefresh,
   onRun,
+  onCancel,
   state,
 }: {
   onRefresh: () => void;
   onRun: () => void;
+  onCancel: () => void;
   state: 'idle' | 'follow' | 'run';
 }) {
   const running = state === 'run';
@@ -37,7 +39,9 @@ function Toolbar({
         状态: {state}
       </span>
       <button disabled>新建子任务</button>
-      <button disabled>停止</button>
+      <button onClick={onCancel} disabled={!running}>
+        停止
+      </button>
     </div>
   );
 }
@@ -384,6 +388,11 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
         }}
         onRun={() => {
           fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' }).catch(() => {});
+        }}
+        onCancel={() => {
+          fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }).catch(
+            () => {},
+          );
         }}
         state={state}
       />

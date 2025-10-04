@@ -42,6 +42,8 @@
     - POST /api/tasks/:id/run：进入 run，调用真实 Agent（OpenAI 兼容，优先 openbuddy），产出 agent.run.\*，完成后切回 follow
     - POST /api/tasks/:id/prompt：以用户提供的 prompt 触发一次运行（覆盖默认 WIP 内容）
     - GET /api/tasks/:id/status：返回 { state: idle|follow|run, clients, running }
+    - 新增：流式事件 agent.run.delta（按片推送），最终 agent.run.output 完成
+    - 新增：取消接口 POST /api/tasks/:id/cancel，后端通过 AbortController 中断协程，事件 agent.run.cancelled
   - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
 - **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件
@@ -50,7 +52,7 @@
 
 - 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
 - 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
-- 详细说明：tests/units/results.md；计划：tests/cases/results.md、tests/stories/results.md
+- 详细说明：tests/units/results.md、tests/cases/results.md；计划：tests/stories/results.md
 
 ### 下一步
 
@@ -58,15 +60,22 @@
 
 [/] **M2 交互功能开发**（当前重点）
 
-- AI Agent 集成：基础单轮真实调用已接入（OpenAI 兼容，优先 openbuddy）；下一步接入流式输出与中断控制
+- AI Agent 集成：基础单轮真实调用已接入（OpenAI 兼容，优先 openbuddy）
+- [x] 接入流式输出（server → WS → UI 逐片推送）
+- [x] 中断控制（前端 Cancel → 后端终止协程 → 状态回退）
 - 实时 WebSocket 架构提升：
   - 按 taskId 建立专用 WS 连接
   - 进程内 AI agent 协程 pub/sub 节点订阅
   - 跨进程场景降级为 tail follow JSONL
   - 前端 WS 重连机制
 - Web 端任务创建和管理界面
-- [/] 用户提交 prompt 触发 AI Agent 对话
-- Web 端触发工具调用和中断控制
+- [x] 用户提交 prompt 触发 AI Agent 对话
+- [/ ] Web 端触发工具调用与中断控制（完善交互与状态提示）
+- [/ ] 增加场景测试：cancel-flow（验证 cancel 事件序列）、delta-flow（验证流式片段）
+- [/ ] 前端提示与可视化：运行进度/取消状态显式化，delta 合并展示优化
+- [/ ] WS 重连与退避策略优化（断线提示、自动恢复）
+- [ ] Provider/Model 选择 UI（结合 SettingsProviders）
+- [ ] 事件分页与日期范围在前端加入 UI 支持
 
 **技术架构重点**：
 
@@ -91,6 +100,7 @@
   - curl -X POST http://localhost:5175/api/tasks/DEMO/run
   - curl -X POST http://localhost:5175/api/tasks/DEMO/prompt -H "Content-Type: application/json" -d '{"prompt":"..."}'
   - curl http://localhost:5175/api/tasks/DEMO/status
+  - curl -X POST http://localhost:5175/api/tasks/DEMO/cancel
   - curl "http://localhost:5175/api/tasks/DEMO/events?limit=10"
 - 场景测试:
   - 单场景：bash tests/cases/run-prompt-flow.sh
