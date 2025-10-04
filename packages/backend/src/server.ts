@@ -756,7 +756,7 @@ async function appendEventToFile(taskId: string, ev: EventT) {
 }
 
 // Real agent runner
-async function runRealAgent(taskId: string): Promise<void> {
+async function runRealAgent(taskId: string, promptOverride?: string): Promise<void> {
   // Load merged provider config
   const template = await loadProviderTemplate();
   const runtime = await loadRuntimeProviderConfig();
@@ -803,12 +803,14 @@ async function runRealAgent(taskId: string): Promise<void> {
     if (!apiKey) throw new Error(`Env ${envVar} not set`);
   }
 
-  // Build prompt from WIP if available
-  let prompt = `Please summarize the current task ${taskId} context.`;
+  // Build prompt from override or WIP if available
+  let prompt = promptOverride ?? `Please summarize the current task ${taskId} context.`;
   try {
-    const wipPath = paths.minds('tasks', taskId, 'wip.md');
-    if (await fileExists(wipPath)) {
-      prompt = await readText(wipPath);
+    if (!promptOverride) {
+      const wipPath = paths.minds('tasks', taskId, 'wip.md');
+      if (await fileExists(wipPath)) {
+        prompt = await readText(wipPath);
+      }
     }
   } catch {}
 
@@ -855,7 +857,7 @@ async function runRealAgent(taskId: string): Promise<void> {
   });
 }
 
-async function startRun(taskId: string) {
+async function startRun(taskId: string, promptOverride?: string) {
   const node = getOrCreateTaskNode(taskId);
   if (node.running) return; // already running
   node.running = true;
@@ -883,7 +885,7 @@ async function startRun(taskId: string) {
 
       // run agent once
       try {
-        await runRealAgent(taskId);
+        await runRealAgent(taskId, promptOverride);
       } catch (err: any) {
         const evErr: EventT = {
           ts: new Date().toISOString(),
@@ -921,11 +923,27 @@ async function startRun(taskId: string) {
   })();
 }
 
-// POST /api/tasks/:id/run - switch to run and start simulated producer
+/**
+ * POST /api/tasks/:id/run - keep existing run trigger
+ */
 app.post('/api/tasks/:id/run', async (c) => {
   const taskId = c.req.param('id');
   startRun(taskId);
   return c.json({ ok: true, message: 'run started' });
+});
+
+/**
+ * POST /api/tasks/:id/prompt - trigger a run with user-provided prompt override
+ */
+app.post('/api/tasks/:id/prompt', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const prompt = typeof body?.prompt === 'string' ? body.prompt : undefined;
+  startRun(taskId, prompt);
+  return c.json({ ok: true, message: 'prompt run started' });
 });
 
 // GET /api/tasks/:id/status - report current node state

@@ -38,8 +38,9 @@
   - 错误处理 - 友好的降级显示和状态提示
 - **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
   - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）
-  - 新增：M2 基础推进与状态查询已实现（run/status）
+  - 新增：M2 基础推进与状态查询已实现（run/status/prompt）
     - POST /api/tasks/:id/run：进入 run，调用真实 Agent（OpenAI 兼容，优先 openbuddy），产出 agent.run.\*，完成后切回 follow
+    - POST /api/tasks/:id/prompt：以用户提供的 prompt 触发一次运行（覆盖默认 WIP 内容）
     - GET /api/tasks/:id/status：返回 { state: idle|follow|run, clients, running }
   - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
@@ -48,6 +49,7 @@
 ### TDD 验证结果（摘要）
 
 - 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
+- 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
 - 详细说明：tests/units/results.md；计划：tests/cases/results.md、tests/stories/results.md
 
 ### 下一步
@@ -63,7 +65,7 @@
   - 跨进程场景降级为 tail follow JSONL
   - 前端 WS 重连机制
 - Web 端任务创建和管理界面
-- 用户提交 prompt 触发 AI Agent 对话
+- [/] 用户提交 prompt 触发 AI Agent 对话
 - Web 端触发工具调用和中断控制
 
 **技术架构重点**：
@@ -87,5 +89,9 @@
 - 测试:
   - curl http://localhost:5175/api/tasks/DEMO/wip
   - curl -X POST http://localhost:5175/api/tasks/DEMO/run
+  - curl -X POST http://localhost:5175/api/tasks/DEMO/prompt -H "Content-Type: application/json" -d '{"prompt":"..."}'
   - curl http://localhost:5175/api/tasks/DEMO/status
   - curl "http://localhost:5175/api/tasks/DEMO/events?limit=10"
+- 场景测试:
+  - 单场景：bash tests/cases/run-prompt-flow.sh
+  - 全部场景：bash scripts/run-case-tests.sh
