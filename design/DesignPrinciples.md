@@ -42,6 +42,9 @@
 - M1：只读渲染（REST/WS 读取事实）
 - M2：LLM api 调用，Agent 对话可运行，少量控制（中断/新建子任务/Provider 连通性）
 - M3：接入各种工具供 AI Agent 使用
+- M4：CI/CD 与质量
+  - 将现有 E2E 场景纳入 CI；错误监控与告警；测试结果自动汇总到 tests/\*/results.md
+  - 清理废弃用例与数据；确保 .minds/.tasklogs 规则遵循“测试工作区隔离”
 
 工程栈约束（强约束）
 
