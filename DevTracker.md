@@ -26,7 +26,7 @@
   - GET /api/tasks/:id/events - 事件流，支持跨日期范围和分页，含错误处理
   - GET /api/providers - Provider 配置，安全隐藏密钥
   - POST /api/providers/test - 连通性测试（支持环境变量配置）
-  - WebSocket /ws - 实时连接 + 基于文件尾随的事件广播
+  - WebSocket /ws/:taskId - append-only 传输（仅追加事件节点）+ 基于文件尾随的事件广播
   - M3 任务生命周期 API：POST /api/tasks（创建模板与事件）、PATCH /api/tasks/:id（重命名事件）、DELETE /api/tasks/:id（移除模板、保留日志目录）
 - **配置系统**: Provider 配置
   - 使用 `apiKeyEnvVar` 替代直接配置 API Key，提升安全性
@@ -37,9 +37,9 @@
   - WipSummaryPanel - Markdown 渲染，代码高亮，响应式样式
   - 错误处理 - 友好的降级显示和状态提示
 - **实时功能**: WebSocket 事件广播系统（M1 基础实现 → M2 渐进）
-  - 当前：已切换为按 taskId 的 WS (/ws/:taskId) + 懒加载 follow（idle/follow）
+  - 当前：已切换为按 taskId 的 WS (/ws/:taskId，append-only) + 懒加载 follow（idle/follow）
   - 新增：M2 基础推进与状态查询已实现（run/status/prompt）
-    - POST /api/tasks/:id/run：进入 run，调用真实 Agent（OpenAI 兼容，优先 openbuddy），产出 agent.run.\*，完成后切回 follow
+    - POST /api/tasks/:id/run：进入 run，调用真实 Agent（OpenAI 兼容，优先 openbuddy），产出 agent.run.\*，完成后切回 follow；支持 awaitAsk=1 触发 ask-await 闭环
     - POST /api/tasks/:id/prompt：以用户提供的 prompt 触发一次运行（覆盖默认 WIP 内容）
     - GET /api/tasks/:id/status：返回 { state: idle|follow|run, clients, running }
     - 新增：流式事件 agent.run.delta（按片推送），最终 agent.run.output 完成
@@ -50,7 +50,9 @@
 
 ### TDD 验证结果（摘要）
 
-- 新增：ask-flow（tests/cases/ask-flow.sh）通过，后端最小 ask API（request/response）事件落盘与 meta 增量校验有效
+- 新增：ask-flow（tests/cases/ask-flow.sh）通过，基于 WS 的 ask 事件（request/response）落盘与 meta 增量校验有效
+- 新增：ask-await-flow（tests/cases/ask-await-flow.sh）通过；后端 AskAwaitRegistry await 闭环验证完成（agent.ask.request/response → agent.run.output）
+- 新增：前端 Ask-await UI 与 awaitAsk 开关接入；E2E 用例 tests/e2e/ask_await_ui.spec.ts 通过（WS 回答“OK by human”后出现 agent.run.output）
 
 - 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
 - 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）、task_lifecycle（tests/cases/task_lifecycle.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
@@ -80,8 +82,8 @@
   - 基于文件扫描的轻量索引缓存（recent events / spans），新增 .tasklogs/{taskId}/meta.json 增量写入 tag/收藏
   - GET /api/tasks/:id/events 增强：分页与范围在现有基础上补充 tag/收藏过滤（最小）
 - [/] 协作与问答（ask）最小闭环
-  - 后端：最小 API 已落地（POST /api/tasks/:id/ask、POST /api/tasks/:id/answer），事件持久化与 meta 增量已验证（ask-flow 通过）
-  - 前端：问题卡片展示与回答输入（待做），后端写入响应事件后继续计算
+  - 后端：WS 追加事件已落地（agent.ask.request/agent.ask.response），事件持久化与 meta 增量已验证（ask-flow 通过）；AskAwaitRegistry 已挂接 append 后解释；run 协程已接入 waitForAnswer，通过 awaitAsk 开关触发（/api/tasks/:id/run?awaitAsk=1，超时 15s）
+  - 前端：问题卡片展示与回答输入（最小 AskPanel 已携带 questionId 并自动回填）；TaskPage 已加入 Ask-await 开关，运行时可选择 awaitAsk 流程
   - 设计遵循 design/AskTool.md Prompt 模板
 - [/] 内部工具框架（ToolRegistry）与受限工具
   - ToolRegistry：name/description/parameters/execute/metadata；与 run 协程集成

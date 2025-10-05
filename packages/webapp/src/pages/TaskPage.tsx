@@ -20,6 +20,8 @@ function Toolbar({
   toolArg,
   setToolArg,
   state,
+  awaitAsk,
+  setAwaitAsk,
 }: {
   onRefresh: () => void;
   onRun: () => void;
@@ -28,6 +30,8 @@ function Toolbar({
   toolArg: string;
   setToolArg: (v: string) => void;
   state: 'idle' | 'follow' | 'run';
+  awaitAsk: boolean;
+  setAwaitAsk: (v: boolean) => void;
 }) {
   const running = state === 'run';
   return (
@@ -36,6 +40,23 @@ function Toolbar({
       style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
     >
       <button onClick={onRefresh}>刷新</button>
+      <label
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          fontSize: 12,
+          color: '#586069',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={awaitAsk}
+          onChange={(e) => setAwaitAsk((e.target as HTMLInputElement).checked)}
+          disabled={running}
+        />
+        Ask-await
+      </label>
       <button onClick={onRun} disabled={running}>
         推进
       </button>
@@ -310,6 +331,12 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   const [outputReady, setOutputReady] = useState(false);
   // 工具参数与提示
   const [toolArg, setToolArg] = useState('');
+  const [awaitAsk, setAwaitAsk] = useState(false);
+  const awaitAskRef = React.useRef(false);
+  const setAwaitAskWrapped = (v: boolean) => {
+    setAwaitAsk(v);
+    awaitAskRef.current = v;
+  };
   // 统一 toast 提示队列（2s 自动消退）
   const [toasts, setToasts] = useState<{ id: number; text: string; color?: string }[]>([]);
   const pushToast = (text: string, color?: string) => {
@@ -544,10 +571,13 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
           }
         }}
         onRun={() => {
-          fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: 'POST' })
+          fetch(
+            `/api/tasks/${encodeURIComponent(taskId)}/run${awaitAskRef.current ? '?awaitAsk=1' : ''}`,
+            { method: 'POST' },
+          )
             .then((r) => {
               if (!r.ok) throw new Error('run failed');
-              pushToast('已触发运行', '#28a745');
+              pushToast(awaitAsk ? '已触发运行（Ask-await）' : '已触发运行', '#28a745');
             })
             .catch(() => pushToast('运行触发失败', '#d73a49'));
         }}
@@ -576,6 +606,8 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
         toolArg={toolArg}
         setToolArg={setToolArg}
         state={state}
+        awaitAsk={awaitAsk}
+        setAwaitAsk={setAwaitAskWrapped}
       />
       <div className="content" style={{ padding: 12 }}>
         <div
@@ -743,18 +775,60 @@ function AskPanel({ taskId }: { taskId: string }) {
   const [q, setQ] = useState('');
   const [a, setA] = useState('');
   const [busy, setBusy] = useState(false);
+  // 记忆最近一次 ask.request 的 questionId，便于在 ask.response 复用
+  const lastQidRef = React.useRef<string>('');
+  const genQid = () => {
+    const t = Date.now().toString(36);
+    const r = Math.random().toString(36).slice(2, 8);
+    return `q_${t}_${r}`;
+  };
 
-  const post = async (path: string, body: any) => {
+  const sendAppendEvent = async (ev: {
+    ts: string;
+    taskId: string;
+    type: string;
+    payload: any;
+    agentId?: string;
+    spanId?: string;
+    parentSpanId?: string;
+  }) => {
     setBusy(true);
     try {
-      const r = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${encodeURIComponent(taskId)}`;
+      await new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        const timer = window.setTimeout(() => {
+          try {
+            ws.close();
+          } catch {}
+          reject(new Error('ws timeout'));
+        }, 3000);
+        ws.onopen = () => {
+          try {
+            ws.send(JSON.stringify({ kind: 'append', event: ev }));
+            window.setTimeout(() => {
+              clearTimeout(timer);
+              try {
+                ws.close();
+              } catch {}
+              resolve();
+            }, 100);
+          } catch (e) {
+            clearTimeout(timer);
+            try {
+              ws.close();
+            } catch {}
+            reject(e as any);
+          }
+        };
+        ws.onerror = (e) => {
+          clearTimeout(timer);
+          try {
+            ws.close();
+          } catch {}
+          reject(e as any);
+        };
       });
-      if (!r.ok) throw new Error('request failed');
-    } catch (err) {
-      console.warn('ask request failed:', err);
     } finally {
       setBusy(false);
     }
@@ -778,7 +852,18 @@ function AskPanel({ taskId }: { taskId: string }) {
           disabled={busy}
         />
         <button
-          onClick={() => q.trim() && post('ask', { question: q.trim() }).then(() => setQ(''))}
+          onClick={() => {
+            if (!q.trim()) return;
+            const qid = genQid();
+            const ev = {
+              ts: new Date().toISOString(),
+              taskId,
+              type: 'agent.ask.request',
+              payload: { question: q.trim(), questionId: qid },
+            };
+            lastQidRef.current = qid;
+            sendAppendEvent(ev).then(() => setQ(''));
+          }}
           disabled={busy || !q.trim()}
           style={{
             fontSize: 12,
@@ -808,7 +893,16 @@ function AskPanel({ taskId }: { taskId: string }) {
           disabled={busy}
         />
         <button
-          onClick={() => a.trim() && post('answer', { answer: a.trim() }).then(() => setA(''))}
+          onClick={() => {
+            if (!a.trim()) return;
+            const ev = {
+              ts: new Date().toISOString(),
+              taskId,
+              type: 'agent.ask.response',
+              payload: { answer: a.trim(), questionId: lastQidRef.current || undefined },
+            };
+            sendAppendEvent(ev).then(() => setA(''));
+          }}
           disabled={busy || !a.trim()}
           style={{
             fontSize: 12,

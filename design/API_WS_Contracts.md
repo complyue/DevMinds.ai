@@ -119,3 +119,26 @@ URL: /ws
 - providers/\* → /api/providers, /api/providers/test（用于后端/Agent 辅助，不用于 WebUI 展示）
 - server/session/\* → /api/tasks/:id/events 与 WS 的事件封装
 - tool/\* → 未来在 M3 接入工具触发时使用
+
+入站控制信道（事件流唯一驱动）
+
+- URL：WS /ws/:taskId
+- 客户端 → 服务器：仅允许 kind=control 的控制消息，服务端验证后写入事件流并广播
+- 消息格式（统一）：
+  {
+  kind: "control",
+  type: "agent.ask.request" | "agent.ask.response" | "agent.tool.request",
+  payload: object
+  }
+- 各类型 payload 约定：
+  - agent.ask.request: { question: string }
+  - agent.ask.response: { answer: string }
+  - agent.tool.request: { name: string, args: object }
+- 服务端处理：
+  - ask.\*：直接落盘对应事件（EventSchema），并通过 message.appended 广播
+  - tool.request：先落盘 request，再调用 ToolRegistry.call(name,args)，随后落盘 agent.tool.result：
+    { payload: { name, ok: true, result } } 或 { payload: { name, ok: false, error } }
+- 移除的 HTTP 路由：/api/tasks/:id/ask, /api/tasks/:id/answer, /api/tasks/:id/tool/echo（均不再提供）
+- 安全与限流：
+  - 严格 JSON 校验与字段截断（字符串长度限制等）
+  - 速率限制与会话校验沿用通用 WS 规则

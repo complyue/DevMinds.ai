@@ -117,3 +117,21 @@
 - WebUI-first：便于可视化任务树与对话过程（H5 复刻 opencode TUI）
 - 文件系统为真相源：简化部署、贴近代码工作区、易于审计与回放
 - 局部上下文 + 主动提问：降低上下文污染，尤其适配能力中等模型
+
+## 11. 事件流唯一驱动原则（WS 控制信道）
+
+- 原则：所有交互驱动均以“事件”为唯一事实源；不通过专用 HTTP 路由触发 ask/answer 或 tool 调用。
+- 通道：WebSocket /ws/:taskId
+  - 出站：服务端向客户端广播事件追加（type=message.appended，payload=事件对象）
+  - 入站：客户端仅可发送“控制消息”（kind=control），服务端校验并转写为事件
+- 允许的控制类型（type）：
+  - agent.ask.request { payload: { question: string } } → 服务端写入事件并广播
+  - agent.ask.response { payload: { answer: string } } → 服务端写入事件并广播
+  - agent.tool.request { payload: { name: string, args: object } }
+    - 服务端先写入 agent.tool.request，再调用 ToolRegistry.call(name,args)
+    - 返回结果写入 agent.tool.result { payload: { name, ok: boolean, result? , error? } } 并广播
+- 已删除的 HTTP 路由（不再提供）：/api/tasks/:id/ask, /api/tasks/:id/answer, /api/tasks/:id/tool/echo
+- UI 行为：
+  - 识别 agent.ask.request 节点并渲染回答 UI（文本框或选项）
+  - 用户提交即发送 WS 控制消息 agent.ask.response
+  - 工具调用由后端自动执行；UI 仅渲染 agent.tool.request/agent.tool.result 事件

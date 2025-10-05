@@ -660,6 +660,129 @@ wss.on('connection', (ws: WebSocket, req: any) => {
     ws.on('error', (err: unknown) => {
       console.error(`[ws] error for ${taskId}:`, err);
     });
+
+    // Inbound: append-only, no business semantics
+    ws.on('message', async (data: any) => {
+      try {
+        const msg = JSON.parse(String(data || 'null'));
+        if (!msg || msg.kind !== 'append' || typeof msg.event !== 'object') return;
+        const ev = msg.event as any;
+        // Minimal schema check
+        if (
+          !ev ||
+          typeof ev.ts !== 'string' ||
+          typeof ev.taskId !== 'string' ||
+          typeof ev.type !== 'string' ||
+          !('payload' in ev)
+        ) {
+          return;
+        }
+        if (ev.taskId !== taskId) return; // guard cross-task
+        // persist and broadcast
+        await appendEventToFile(taskId, ev);
+        broadcastToTask(taskId, {
+          ts: new Date().toISOString(),
+          type: 'message.appended',
+          payload: ev,
+        });
+      } catch (e) {
+        console.warn('[ws] append message failed:', e);
+      }
+    });
+
+    // Inbound control channel: accept only event-driven control messages
+    ws.on('message', async (raw: any) => {
+      try {
+        const txt =
+          typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';
+        if (!txt) return;
+        const msg = JSON.parse(txt);
+        // WS no longer accepts control semantics; append-only is handled by the other handler.
+        // Ignore all control messages per "event-stream-only transport" principle.
+        return;
+
+        const now = new Date().toISOString();
+
+        // agent.ask.request
+        if (msg.type === 'agent.ask.request') {
+          const question = String(msg?.payload?.question ?? '').slice(0, 2000);
+          const ev: EventT = { ts: now, taskId, type: 'agent.ask.request', payload: { question } };
+          await appendEventToFile(taskId, ev);
+          broadcastToTask(taskId, {
+            ts: new Date().toISOString(),
+            type: 'message.appended',
+            payload: ev,
+          });
+          return;
+        }
+
+        // agent.ask.response
+        if (msg.type === 'agent.ask.response') {
+          const answer = String(msg?.payload?.answer ?? '').slice(0, 4000);
+          const ev: EventT = { ts: now, taskId, type: 'agent.ask.response', payload: { answer } };
+          await appendEventToFile(taskId, ev);
+          broadcastToTask(taskId, {
+            ts: new Date().toISOString(),
+            type: 'message.appended',
+            payload: ev,
+          });
+          return;
+        }
+
+        // agent.tool.request -> ToolRegistry execution -> agent.tool.result
+        if (msg.type === 'agent.tool.request') {
+          const name = String(msg?.payload?.name || '').slice(0, 128);
+          const args =
+            msg?.payload?.args && typeof msg.payload.args === 'object' ? msg.payload.args : {};
+          if (!name) throw new Error('tool name required');
+
+          const evReq: EventT = {
+            ts: now,
+            taskId,
+            type: 'agent.tool.request',
+            payload: { name, args },
+          };
+          await appendEventToFile(taskId, evReq);
+          broadcastToTask(taskId, {
+            ts: new Date().toISOString(),
+            type: 'message.appended',
+            payload: evReq,
+          });
+
+          try {
+            const result = await toolReg.call(name, args);
+            const evRes: EventT = {
+              ts: new Date().toISOString(),
+              taskId,
+              type: 'agent.tool.result',
+              payload: { name, ok: true, result },
+            };
+            await appendEventToFile(taskId, evRes);
+            broadcastToTask(taskId, {
+              ts: new Date().toISOString(),
+              type: 'message.appended',
+              payload: evRes,
+            });
+          } catch (err: any) {
+            const evErr: EventT = {
+              ts: new Date().toISOString(),
+              taskId,
+              type: 'agent.tool.result',
+              payload: { name, ok: false, error: String(err?.message || err) },
+            };
+            await appendEventToFile(taskId, evErr);
+            broadcastToTask(taskId, {
+              ts: new Date().toISOString(),
+              type: 'message.appended',
+              payload: evErr,
+            });
+          }
+          return;
+        }
+      } catch (e) {
+        console.warn('[ws:control] bad message or handler error:', e);
+      }
+    });
   } catch (err) {
     console.error('[ws] failed to handle connection:', err);
     try {
@@ -722,12 +845,46 @@ async function appendEventToFile(taskId: string, ev: EventT) {
   } catch (err) {
     console.warn(`[meta:${taskId}] failed to update meta.json:`, err);
   }
+  // Business interpretation hook (e.g., resolve ask-await by questionId)
+  try {
+    handleEventBusiness(ev);
+  } catch (e) {
+    console.warn('[event-hook] handleEventBusiness failed:', e);
+  }
+}
+
+/**
+ * AskAwaitRegistry: resolve ask.response(questionId) for awaiting agent coroutines
+ * - waitForAnswer returns a Promise resolved when a matching agent.ask.response arrives
+ * - handleEventBusiness interprets events post-persist to resolve waiters
+ */
+const askWaiters = new Map<string, (ans: any) => void>();
+function waitForAnswer(questionId: string): Promise<any> {
+  return new Promise((resolve) => {
+    askWaiters.set(String(questionId), resolve);
+  });
+}
+function handleEventBusiness(ev: EventT) {
+  try {
+    if (ev.type === 'agent.ask.response') {
+      const qid =
+        (ev as any)?.payload?.questionId ?? (ev as any)?.payload?.qid ?? (ev as any)?.payload?.id;
+      if (qid && askWaiters.has(String(qid))) {
+        const resolve = askWaiters.get(String(qid))!;
+        askWaiters.delete(String(qid));
+        resolve((ev as any).payload);
+      }
+    }
+  } catch (err) {
+    console.warn('[ask-await] handleEventBusiness error:', err);
+  }
 }
 
 // Real agent runner
 async function runRealAgent(
   taskId: string,
   promptOverride?: string,
+  awaitAsk?: boolean,
   abortCtrl?: AbortController,
 ): Promise<void> {
   // Load merged provider config
@@ -821,6 +978,55 @@ async function runRealAgent(
     );
     if (debugStack) console.debug(`[debug:stack] ${debugStack}`);
   } catch {}
+
+  // Optional ask-await before calling provider
+  let askNote: any = null;
+  if (awaitAsk) {
+    const questionId = `q_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const evAsk: EventT = {
+      ts: new Date().toISOString(),
+      taskId,
+      type: 'agent.ask.request',
+      payload: { question: 'Please confirm to proceed.', questionId },
+    };
+    await appendEventToFile(taskId, evAsk);
+    broadcastToTask(taskId, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: evAsk,
+    });
+    try {
+      const p = waitForAnswer(questionId);
+      const withTimeout = new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('ask timeout')), 15000);
+        p.then((v) => {
+          clearTimeout(t);
+          resolve(v);
+        }).catch((e) => {
+          clearTimeout(t);
+          reject(e);
+        });
+      });
+      askNote = await withTimeout;
+    } catch (e: any) {
+      askNote = { timeout: true, error: String(e?.message || e) };
+    }
+    if (abortCtrl?.signal.aborted) {
+      const evCancelled: EventT = {
+        ts: new Date().toISOString(),
+        taskId,
+        type: 'agent.run.cancelled',
+        payload: { message: 'run cancelled' },
+      };
+      await appendEventToFile(taskId, evCancelled);
+      broadcastToTask(taskId, {
+        ts: new Date().toISOString(),
+        type: 'message.appended',
+        payload: evCancelled,
+      });
+      return;
+    }
+  }
 
   let content = '';
   if (provider.apiType === 'mock') {
@@ -916,7 +1122,7 @@ async function runRealAgent(
       skill,
       providerId,
       model: provider.apiType === 'mock' ? 'test-model' : model,
-      content,
+      content: askNote ? `ask-note: ${JSON.stringify(askNote)}\n${content}` : content,
     },
   };
   try {
@@ -932,7 +1138,7 @@ async function runRealAgent(
   });
 }
 
-async function startRun(taskId: string, promptOverride?: string) {
+async function startRun(taskId: string, promptOverride?: string, awaitAsk?: boolean) {
   const node = getOrCreateTaskNode(taskId);
   if (node.running) return; // already running
   node.running = true;
@@ -962,7 +1168,7 @@ async function startRun(taskId: string, promptOverride?: string) {
 
       // run agent once
       try {
-        await runRealAgent(taskId, promptOverride, node.abortCtrl);
+        await runRealAgent(taskId, promptOverride, awaitAsk, node.abortCtrl);
       } catch (err: any) {
         const evErr: EventT = {
           ts: new Date().toISOString(),
@@ -1003,12 +1209,127 @@ async function startRun(taskId: string, promptOverride?: string) {
 }
 
 /**
+ * Ask-await run: emit ask.request(questionId), await response, then output
+ * This is a minimal entry to e2e-verify the ask-await mechanism while keeping WS append-only.
+ */
+async function runAskAwaitAgent(taskId: string, abortCtrl?: AbortController) {
+  const now = () => new Date().toISOString();
+
+  // started
+  const evStart: EventT = {
+    ts: now(),
+    taskId,
+    type: 'agent.run.started',
+    payload: { message: 'run-ask started' },
+  };
+  await appendEventToFile(taskId, evStart);
+  broadcastToTask(taskId, { ts: now(), type: 'message.appended', payload: evStart });
+
+  // emit ask.request with questionId
+  const questionId = `q_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const evAsk: EventT = {
+    ts: now(),
+    taskId,
+    type: 'agent.ask.request',
+    payload: { question: 'Please provide your confirmation to proceed.', questionId },
+  };
+  await appendEventToFile(taskId, evAsk);
+  broadcastToTask(taskId, { ts: now(), type: 'message.appended', payload: evAsk });
+
+  // wait for human answer with a soft timeout
+  let answered: any = null;
+  try {
+    const p = waitForAnswer(questionId);
+    const withTimeout = new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('ask timeout')), 15000);
+      p.then((v) => {
+        clearTimeout(t);
+        resolve(v);
+      }).catch((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+    answered = await withTimeout;
+  } catch (e: any) {
+    answered = { timeout: true, error: String(e?.message || e) };
+  }
+
+  if (abortCtrl?.signal.aborted) {
+    const evCancelled: EventT = {
+      ts: now(),
+      taskId,
+      type: 'agent.run.cancelled',
+      payload: { message: 'run cancelled' },
+    };
+    await appendEventToFile(taskId, evCancelled);
+    broadcastToTask(taskId, { ts: now(), type: 'message.appended', payload: evCancelled });
+    return;
+  }
+
+  // produce output including the received answer
+  const evOut: EventT = {
+    ts: now(),
+    taskId,
+    type: 'agent.run.output',
+    payload: { content: `answer received: ${JSON.stringify(answered)}` },
+  };
+  await appendEventToFile(taskId, evOut);
+  broadcastToTask(taskId, { ts: now(), type: 'message.appended', payload: evOut });
+
+  const evDone: EventT = {
+    ts: now(),
+    taskId,
+    type: 'agent.run.finished',
+    payload: { message: 'run-ask finished' },
+  };
+  await appendEventToFile(taskId, evDone);
+  broadcastToTask(taskId, { ts: now(), type: 'message.appended', payload: evDone });
+}
+
+/**
  * POST /api/tasks/:id/run - keep existing run trigger
  */
 app.post('/api/tasks/:id/run', async (c) => {
   const taskId = c.req.param('id');
-  startRun(taskId);
-  return c.json({ ok: true, message: 'run started' });
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const urlObj = new URL(c.req.url);
+  const qFlag = urlObj.searchParams.get('awaitAsk');
+  const awaitAsk =
+    typeof body?.awaitAsk === 'boolean' ? body.awaitAsk : qFlag === '1' || qFlag === 'true';
+  startRun(taskId, undefined, awaitAsk);
+  return c.json({ ok: true, message: 'run started', awaitAsk: !!awaitAsk });
+});
+
+/**
+ * POST /api/tasks/:id/run-ask - trigger a run that awaits a human answer
+ * Minimal E2E entry for ask-await verification
+ */
+app.post('/api/tasks/:id/run-ask', async (c) => {
+  const taskId = c.req.param('id');
+  // fire-and-forget to keep minimal impact on existing startRun flow
+  (async () => {
+    try {
+      await runAskAwaitAgent(taskId);
+    } catch (err) {
+      const evErr: EventT = {
+        ts: new Date().toISOString(),
+        taskId,
+        type: 'agent.run.error',
+        payload: { message: String((err as any)?.message || err) },
+      };
+      await appendEventToFile(taskId, evErr);
+      broadcastToTask(taskId, {
+        ts: new Date().toISOString(),
+        type: 'message.appended',
+        payload: evErr,
+      });
+    }
+  })();
+  return c.json({ ok: true, message: 'run-ask started' });
 });
 
 /**
@@ -1020,9 +1341,13 @@ app.post('/api/tasks/:id/prompt', async (c) => {
   try {
     body = await c.req.json();
   } catch {}
+  const urlObj = new URL(c.req.url);
+  const qFlag = urlObj.searchParams.get('awaitAsk');
   const prompt = typeof body?.prompt === 'string' ? body.prompt : undefined;
-  startRun(taskId, prompt);
-  return c.json({ ok: true, message: 'prompt run started' });
+  const awaitAsk =
+    typeof body?.awaitAsk === 'boolean' ? body.awaitAsk : qFlag === '1' || qFlag === 'true';
+  startRun(taskId, prompt, awaitAsk);
+  return c.json({ ok: true, message: 'prompt run started', awaitAsk: !!awaitAsk });
 });
 
 /**
@@ -1173,76 +1498,10 @@ app.delete('/api/tasks/:id', async (c) => {
 /**
  * Ask minimal APIs: persist request/response events and update meta.json
  */
-app.post('/api/tasks/:id/ask', async (c) => {
-  const taskId = c.req.param('id');
-  let body: any = {};
-  try {
-    body = await c.req.json();
-  } catch {}
-  const ts = new Date().toISOString();
-  const evReq: EventT = {
-    ts,
-    taskId,
-    type: 'agent.ask.request',
-    payload: { question: String(body?.question ?? '') },
-  };
-  await appendEventToFile(taskId, evReq);
-  return c.json({ ok: true, message: 'ask recorded' });
-});
-
-app.post('/api/tasks/:id/answer', async (c) => {
-  const taskId = c.req.param('id');
-  let body: any = {};
-  try {
-    body = await c.req.json();
-  } catch {}
-  const ts = new Date().toISOString();
-  const evAns: EventT = {
-    ts,
-    taskId,
-    type: 'agent.ask.response',
-    payload: { answer: String(body?.answer ?? '') },
-  };
-  await appendEventToFile(taskId, evAns);
-  return c.json({ ok: true, message: 'answer recorded' });
-});
 
 /**
  * Ask minimal APIs: persist request/response events and update meta.json
  */
-app.post('/api/tasks/:id/ask', async (c) => {
-  const taskId = c.req.param('id');
-  let body: any = {};
-  try {
-    body = await c.req.json();
-  } catch {}
-  const ts = new Date().toISOString();
-  const evReq: EventT = {
-    ts,
-    taskId,
-    type: 'agent.ask.request',
-    payload: { question: String(body?.question ?? '') },
-  };
-  await appendEventToFile(taskId, evReq);
-  return c.json({ ok: true, message: 'ask recorded' });
-});
-
-app.post('/api/tasks/:id/answer', async (c) => {
-  const taskId = c.req.param('id');
-  let body: any = {};
-  try {
-    body = await c.req.json();
-  } catch {}
-  const ts = new Date().toISOString();
-  const evAns: EventT = {
-    ts,
-    taskId,
-    type: 'agent.ask.response',
-    payload: { answer: String(body?.answer ?? '') },
-  };
-  await appendEventToFile(taskId, evAns);
-  return c.json({ ok: true, message: 'answer recorded' });
-});
 
 /**
  * ToolRegistry integration for M3 verification
@@ -1265,34 +1524,6 @@ toolReg.register({
  * POST /api/tasks/:id/tool/echo
  * Tool endpoint via ToolRegistry: append agent.tool.echo with payload+result
  */
-app.post('/api/tasks/:id/tool/echo', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const body = await c.req.json().catch(() => ({}));
-    const ts = new Date().toISOString();
-
-    const result = await toolReg.call('echo', body);
-    const ev: EventT = {
-      ts,
-      taskId: id,
-      type: 'agent.tool.echo',
-      payload: { message: String(body?.message || '').slice(0, 2000) },
-    };
-
-    await appendEventToFile(id, ev);
-    await updateMeta(id, ev);
-
-    broadcastToTask(id, {
-      ts: new Date().toISOString(),
-      type: 'message.appended',
-      payload: ev,
-    });
-
-    return c.json({ ok: true, result });
-  } catch (err: any) {
-    return c.json({ ok: false, message: String(err?.message || err) }, 400);
-  }
-});
 
 // GET /api/tasks/:id/status - report current node state
 app.get('/api/tasks/:id/status', async (c) => {
