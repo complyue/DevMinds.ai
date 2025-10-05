@@ -739,6 +739,92 @@ function ConversationStream({ taskId, date }: { taskId: string; date: string }) 
   );
 }
 
+function AskPanel({ taskId }: { taskId: string }) {
+  const [q, setQ] = useState('');
+  const [a, setA] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const post = async (path: string, body: any) => {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('request failed');
+    } catch (err) {
+      console.warn('ask request failed:', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid #eee', paddingTop: 12 }}>
+      <div style={{ fontSize: 12, color: '#6a737d', marginBottom: 6 }}>Ask 面板（最小实现）</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="输入问题（ask）"
+          style={{
+            fontSize: 12,
+            padding: '4px 6px',
+            border: '1px solid #ddd',
+            borderRadius: 4,
+            minWidth: 240,
+          }}
+          disabled={busy}
+        />
+        <button
+          onClick={() => q.trim() && post('ask', { question: q.trim() }).then(() => setQ(''))}
+          disabled={busy || !q.trim()}
+          style={{
+            fontSize: 12,
+            padding: '4px 8px',
+            border: '1px solid #d1d5da',
+            borderRadius: 4,
+            background: '#f6f8fa',
+          }}
+        >
+          提交问题
+        </button>
+      </div>
+      <div
+        style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}
+      >
+        <input
+          value={a}
+          onChange={(e) => setA(e.target.value)}
+          placeholder="输入回答（answer）"
+          style={{
+            fontSize: 12,
+            padding: '4px 6px',
+            border: '1px solid #ddd',
+            borderRadius: 4,
+            minWidth: 240,
+          }}
+          disabled={busy}
+        />
+        <button
+          onClick={() => a.trim() && post('answer', { answer: a.trim() }).then(() => setA(''))}
+          disabled={busy || !a.trim()}
+          style={{
+            fontSize: 12,
+            padding: '4px 8px',
+            border: '1px solid #d1d5da',
+            borderRadius: 4,
+            background: '#f6f8fa',
+          }}
+        >
+          提交回答
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WipSummaryPanel({ taskId }: { taskId: string }) {
   const [wip, setWip] = useState<string>('');
   const [missing, setMissing] = useState(false);
@@ -794,6 +880,9 @@ function WipSummaryPanel({ taskId }: { taskId: string }) {
           </div>
         )}
         {!missing && !loading && !wip && <div style={{ color: '#6a737d' }}>摘要为空</div>}
+
+        {/* Ask 面板（最小实现）：调用后端 ask/answer API */}
+        <AskPanel taskId={taskId} />
       </div>
     </div>
   );

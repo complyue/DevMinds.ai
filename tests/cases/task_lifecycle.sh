@@ -39,9 +39,15 @@ if [ "${LINES}" -lt 1 ]; then
   echo "events file has no lines after lifecycle ops"
   exit 1
 fi
+# Validate specific lifecycle events
+grep -q '"type":"task.lifecycle.created"' "${EVENT_FILE}" || { echo "[M3:TDD][fail] missing task.lifecycle.created"; cat "${EVENT_FILE}"; exit 1; }
+grep -q '"type":"task.lifecycle.renamed"' "${EVENT_FILE}" || { echo "[M3:TDD][fail] missing task.lifecycle.renamed"; cat "${EVENT_FILE}"; exit 1; }
 
 echo "[M3:TDD] delete task"
 curl -sS -X DELETE "${BASE_URL}/api/tasks/${TASK_ID}"
+# Validate deleted event persisted
+sleep 0.2
+grep -q '"type":"task.lifecycle.deleted"' "${EVENT_FILE}" || { echo "[M3:TDD][fail] missing task.lifecycle.deleted"; cat "${EVENT_FILE}"; exit 1; }
 
 # After delete: templates removed, logs archived or removed by policy (TBD)
 # For initial TDD, we assert templates gone, logs dir remains with events.

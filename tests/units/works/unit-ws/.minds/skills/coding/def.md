@@ -1,4 +1,4 @@
 ---
 providerId: mock
-model: long
+model: test-model
 ---

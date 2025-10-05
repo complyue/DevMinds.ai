@@ -11,6 +11,7 @@ import * as yaml from 'js-yaml';
 import './providers/defaults.js';
 import './providers/hooks.js';
 import { callProvider } from './providers/registry.js';
+import { ToolRegistry } from './tools/registry.js';
 
 const app = new Hono();
 
@@ -676,6 +677,38 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 /**
  * M2: run state — start a simulated agent producer
  */
+// Atomic JSON write helper (tmp + rename) under .tasklogs
+async function atomicWriteJson(fp: string, obj: any) {
+  const tmp = fp + '.tmp';
+  await fs.writeFile(tmp, JSON.stringify(obj, null, 2), 'utf8');
+  await fs.rename(tmp, fp);
+}
+
+async function updateMeta(taskId: string, ev: EventT) {
+  const dir = paths.tasklogs(taskId);
+  await ensureDir(dir);
+  const metaPath = path.join(dir, 'meta.json');
+  let meta: any = {};
+  try {
+    if (await fileExists(metaPath)) {
+      const txt = await readText(metaPath);
+      if (txt && txt.trim()) meta = JSON.parse(txt);
+    }
+  } catch {}
+  // Initialize structure
+  meta.taskId = taskId;
+  meta.lastTs = ev.ts;
+  meta.counts = meta.counts && typeof meta.counts === 'object' ? meta.counts : {};
+  meta.counts[ev.type] = (meta.counts[ev.type] ?? 0) + 1;
+  // Optional recent types window (bounded)
+  const MAX_RECENT = 50;
+  const recent = Array.isArray(meta.recentTypes) ? meta.recentTypes : [];
+  recent.push(ev.type);
+  if (recent.length > MAX_RECENT) recent.splice(0, recent.length - MAX_RECENT);
+  meta.recentTypes = recent;
+  await atomicWriteJson(metaPath, meta);
+}
+
 async function appendEventToFile(taskId: string, ev: EventT) {
   const day = ev.ts.slice(0, 10).replace(/-/g, '');
   const dir = paths.tasklogs(taskId);
@@ -683,6 +716,12 @@ async function appendEventToFile(taskId: string, ev: EventT) {
   const file = path.join(dir, `events-${day}.jsonl`);
   const line = JSON.stringify(ev) + '\n';
   await fs.appendFile(file, line, 'utf8');
+  // Update lightweight meta index incrementally
+  try {
+    await updateMeta(taskId, ev);
+  } catch (err) {
+    console.warn(`[meta:${taskId}] failed to update meta.json:`, err);
+  }
 }
 
 // Real agent runner
@@ -851,6 +890,22 @@ async function runRealAgent(
   }
 
   // Emit final output event with full content
+  // Final abort check in case cancellation occurred after streaming
+  if (abortCtrl?.signal.aborted) {
+    const evCancelled: EventT = {
+      ts: new Date().toISOString(),
+      taskId,
+      type: 'agent.run.cancelled',
+      payload: { member: chosenMember.id, skill, providerId, model, message: 'run cancelled' },
+    };
+    await appendEventToFile(taskId, evCancelled);
+    broadcastToTask(taskId, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: evCancelled,
+    });
+    return;
+  }
   const nowIso = new Date().toISOString();
   const evOut: EventT = {
     ts: nowIso,
@@ -992,7 +1047,7 @@ app.post('/api/tasks/:id/cancel', async (c) => {
       payload: evReq,
     });
 
-    node.abortCtrl.abort();
+    node.abortCtrl?.abort();
     return c.json({ ok: true, message: 'cancel sent' });
   }
   return c.json({ ok: false, message: 'no running task' }, 400);
@@ -1113,6 +1168,130 @@ app.delete('/api/tasks/:id', async (c) => {
   await appendEventToFile(taskId, ev);
 
   return c.json({ ok: true, message: 'task deleted', taskId });
+});
+
+/**
+ * Ask minimal APIs: persist request/response events and update meta.json
+ */
+app.post('/api/tasks/:id/ask', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const ts = new Date().toISOString();
+  const evReq: EventT = {
+    ts,
+    taskId,
+    type: 'agent.ask.request',
+    payload: { question: String(body?.question ?? '') },
+  };
+  await appendEventToFile(taskId, evReq);
+  return c.json({ ok: true, message: 'ask recorded' });
+});
+
+app.post('/api/tasks/:id/answer', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const ts = new Date().toISOString();
+  const evAns: EventT = {
+    ts,
+    taskId,
+    type: 'agent.ask.response',
+    payload: { answer: String(body?.answer ?? '') },
+  };
+  await appendEventToFile(taskId, evAns);
+  return c.json({ ok: true, message: 'answer recorded' });
+});
+
+/**
+ * Ask minimal APIs: persist request/response events and update meta.json
+ */
+app.post('/api/tasks/:id/ask', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const ts = new Date().toISOString();
+  const evReq: EventT = {
+    ts,
+    taskId,
+    type: 'agent.ask.request',
+    payload: { question: String(body?.question ?? '') },
+  };
+  await appendEventToFile(taskId, evReq);
+  return c.json({ ok: true, message: 'ask recorded' });
+});
+
+app.post('/api/tasks/:id/answer', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const ts = new Date().toISOString();
+  const evAns: EventT = {
+    ts,
+    taskId,
+    type: 'agent.ask.response',
+    payload: { answer: String(body?.answer ?? '') },
+  };
+  await appendEventToFile(taskId, evAns);
+  return c.json({ ok: true, message: 'answer recorded' });
+});
+
+/**
+ * ToolRegistry integration for M3 verification
+ * - register tools declaratively
+ * - use registry.call(name, args) to execute
+ */
+const toolReg = new ToolRegistry();
+toolReg.register({
+  name: 'echo',
+  description: 'Echo back provided message',
+  parameters: [{ name: 'message', type: 'string', required: true, description: 'Text to echo' }],
+  async execute(args: any) {
+    const msg = String(args?.message ?? '').slice(0, 2000);
+    if (!msg) throw new Error('message required');
+    return { ok: true, echoed: msg };
+  },
+});
+
+/**
+ * POST /api/tasks/:id/tool/echo
+ * Tool endpoint via ToolRegistry: append agent.tool.echo with payload+result
+ */
+app.post('/api/tasks/:id/tool/echo', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const ts = new Date().toISOString();
+
+    const result = await toolReg.call('echo', body);
+    const ev: EventT = {
+      ts,
+      taskId: id,
+      type: 'agent.tool.echo',
+      payload: { message: String(body?.message || '').slice(0, 2000) },
+    };
+
+    await appendEventToFile(id, ev);
+    await updateMeta(id, ev);
+
+    broadcastToTask(id, {
+      ts: new Date().toISOString(),
+      type: 'message.appended',
+      payload: ev,
+    });
+
+    return c.json({ ok: true, result });
+  } catch (err: any) {
+    return c.json({ ok: false, message: String(err?.message || err) }, 400);
+  }
 });
 
 // GET /api/tasks/:id/status - report current node state

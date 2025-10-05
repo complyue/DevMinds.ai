@@ -16,3 +16,6 @@ dist/
 
 # DevMinds task history
 .tasklogs/
+
+# Test results
+test-results/

@@ -50,11 +50,58 @@
 
 ### TDD 验证结果（摘要）
 
+- 新增：ask-flow（tests/cases/ask-flow.sh）通过，后端最小 ask API（request/response）事件落盘与 meta 增量校验有效
+
 - 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
 - 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）、task_lifecycle（tests/cases/task_lifecycle.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
+- 新增修复：端口清理与进程管理已增强，cancel-flow、delta-flow、ws-reconnect-flow 稳定通过（EADDRINUSE 竞态已消除）
+- 新增：events-index-flow（tests/cases/events-index-flow.sh）通过；.tasklogs/{taskId}/meta.json 增量索引（lastTs/counts）已启用
+- 新增：tool-echo-flow（tests/cases/tool-echo-flow.sh）通过；agent.tool.echo 事件持久化与 meta.json counts 增量更新（已接入 ToolRegistry）
+- 单元测试：meta-index-unit（tests/units/meta-index-unit.sh）通过；验证 meta.json 原子增量与 lastTs 单调更新
+- 单元测试：workspace-fs-unit（tests/units/workspace-fs-unit.sh）通过；验证仅允许 .minds/.tasklogs 读写、拒绝越权路径
+- 单元测试：workspace-shell-unit（tests/units/workspace-shell-unit.sh）通过；验证仅允许 echo/ls/cat/pwd 等安全命令；拒绝 rm 与绝对路径越权；含超时与输出截断
+- 单元测试：ask-unit（tests/units/ask-unit.sh）通过；验证 agent.ask.request/agent.ask.response 事件持久化与 meta.json 增量更新
+- 单元测试：tool-registry-unit（tests/units/tool-registry-unit.sh）通过；验证最小 ToolRegistry 注册与执行（echo）
+- 单元测试：ask-unit（tests/units/ask-unit.sh）通过；验证 agent.ask.request/agent.ask.response 事件持久化与 meta.json 增量更新
+- 回归：scripts/run-case-tests.sh 全量场景再次通过（run/cancel/delta/ws-reconnect/tool-cancel）
+- 用例强化：task_lifecycle（tests/cases/task_lifecycle.sh）已补充 created/renamed/deleted 事件断言并通过
 - 详细说明：tests/units/results.md、tests/cases/results.md；计划：tests/stories/results.md
 
 ### 下一步
+
+执行项列表（本周）：
+
+- [/] 后端 M3 模板初始化与落盘规范
+  - .minds/tasks/{taskId}/(wip|plan|caveats).md 原子初始化（tmp+rename），校验 repoRoot 包含路径
+  - .tasklogs/{taskId}/ 事件文件规范：按日期写入 events-YYYYMMDD.jsonl，顺序与 Schema 保持一致
+  - API：POST /api/tasks（创建模板与事件）、PATCH /api/tasks/:id（重命名事件）、DELETE /api/tasks/:id（移除模板、保留日志目录）
+- [/] 会话持久化与索引
+  - 已实现：.tasklogs/{taskId}/meta.json 增量写入 lastTs 与各事件类型 counts（原子写 tmp+rename）
+  - 基于文件扫描的轻量索引缓存（recent events / spans），新增 .tasklogs/{taskId}/meta.json 增量写入 tag/收藏
+  - GET /api/tasks/:id/events 增强：分页与范围在现有基础上补充 tag/收藏过滤（最小）
+- [/] 协作与问答（ask）最小闭环
+  - 后端：最小 API 已落地（POST /api/tasks/:id/ask、POST /api/tasks/:id/answer），事件持久化与 meta 增量已验证（ask-flow 通过）
+  - 前端：问题卡片展示与回答输入（待做），后端写入响应事件后继续计算
+  - 设计遵循 design/AskTool.md Prompt 模板
+- [/] 内部工具框架（ToolRegistry）与受限工具
+  - ToolRegistry：name/description/parameters/execute/metadata；与 run 协程集成
+  - 最小骨架已落地：packages/backend/src/tools/registry.ts（注册/调用/列出，独立安全上下文）
+  - 路由接入：后端 /api/tasks/:id/tool/echo 已通过 ToolRegistry 注册与调用；run 协程集成待做
+  - workspace.fs：最小受限实现已落地（packages/backend/src/tools/workspaceFs.ts），仅允许 cwd 下 .minds/.tasklogs；原子写 tmp+rename
+  - workspace.shell：最小受限实现已落地（packages/backend/src/tools/workspaceShell.ts），允许 echo/ls/cat/pwd；拒绝 rm 等破坏性命令、绝对路径越权；超时与输出截断
+- [ ] 测试设计与覆盖
+  - units（cwd=tests/units/works/unit-ws）：模板文件存在性、原子写、索引缓存与 meta.json 增量、shell 限制
+  - cases：扩展 tests/cases/task_lifecycle.sh 覆盖新建/重命名/删除与事件落盘；新增 ask 闭环与工具事件映射场景
+  - CI 脚本：scripts/run-case-tests.sh 扩充纳入新增场景
+- [ ] 前端最小 UI 增强
+  - 左栏任务树的创建/删除与选择切换体验优化
+  - ConversationStream 中按 tag/收藏筛选（最小）
+  - WipSummaryPanel 支持 plan/caveats Markdown 切换
+
+指派与约定：
+
+- 开发遵循“测试工作区隔离”，不写入 packages/\*/.minds 与仓库根 .minds；仅使用 tests 工作区 .minds
+- mock 使用 DEVMINDS_MOCK_DIR 指向 tests/units/works/mock-io，禁止外网与真实密钥
 
 **注意遵循 TDD 原则，E2E测试设计先行，以端到端测试驱动业务功能开发**
 
@@ -110,6 +157,7 @@
 ### 运行方式
 
 - 后端: `npm run dev` (packages/backend, 端口 5175)
+- 测试服务脚本改进：tests/cases/\_helpers/start-backend-in-ws.sh 与 stop-backend.sh 增强端口清理（循环 kill + 校验），scripts/run-case-tests.sh 在每个案例前后统一清理后端，避免端口占用
 - 前端: `npm run dev` (packages/webapp, 端口 5173, 已代理 /api 与 /ws)
 - 访问: http://localhost:5173/tasks/DEMO
 - 测试:

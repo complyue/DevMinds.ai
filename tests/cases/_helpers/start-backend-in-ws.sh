@@ -24,10 +24,25 @@ echo "[start-backend-in-ws] Starting backend at port ${PORT} with cwd=${UNIT_WS}
 echo "[start-backend-in-ws] DEVMINDS_MOCK_DIR -> ${MOCK_IO}"
 
 # Pre-kill any existing listeners on ${PORT} to avoid stale processes
-if lsof -t -i :"${PORT}" -Pn >/dev/null 2>&1; then
+ATTEMPTS=0
+MAX_ATTEMPTS=10
+while lsof -t -i :"${PORT}" -Pn >/dev/null 2>&1; do
   echo "[start-backend-in-ws] Killing existing listeners on port ${PORT}"
-  kill -9 $(lsof -t -i :"${PORT}" -Pn) || true
-  sleep 0.5
+  PIDS="$(lsof -t -i :"${PORT}" -Pn || true)"
+  if [ -n "${PIDS}" ]; then
+    kill -9 ${PIDS} || true
+  fi
+  ATTEMPTS=$((ATTEMPTS+1))
+  if [ "${ATTEMPTS}" -ge "${MAX_ATTEMPTS}" ]; then
+    echo "[start-backend-in-ws] Warning: still occupied after ${MAX_ATTEMPTS} attempts"
+    break
+  fi
+  sleep 0.3
+done
+# Final check: ensure port is free before starting
+if lsof -i :"${PORT}" -sTCP:LISTEN -Pn >/dev/null 2>&1; then
+  echo "[start-backend-in-ws] Error: port ${PORT} still occupied; aborting start"
+  exit 1
 fi
 
 # Launch backend in background with proper env and cwd
