@@ -41,6 +41,7 @@ alwaysApply: true
 - 测试通过且覆盖目标达到。
 - 不引入明文密钥；mock 使用 DEVMINDS_MOCK_DIR 等既有机制。
 - 测试运行以 tests 工作区为 cwd；不修改 packages/*/.minds 或仓库根 .minds（仅允许 tests 工作区的 .minds）。
+- 测试服务启动脚本需在启动前清理端口监听（例如使用 lsof -t -i :$PORT -Pn 与 kill -9），避免陈旧进程干扰。
 
 ## 例外处理
 - 如确需在业务代码中临时加入测试钩子（绝对必要场景），必须：

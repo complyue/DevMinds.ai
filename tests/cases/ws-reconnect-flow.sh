@@ -82,7 +82,7 @@ EOF
 [[ -f "$SKILL_MD" ]] || cat > "$SKILL_MD" <<'EOF'
 ---
 providerId: mock
-model: long
+model: test-model
 ---
 EOF
 

@@ -52,7 +52,7 @@ EOF
 cat > "$TEST_WS_DIR/.minds/skills/coding/def.md" <<'EOF'
 ---
 providerId: mock
-model: long
+model: test-model
 ---
 EOF
 export DEVMINDS_MOCK_DIR="$MOCK_DIR"

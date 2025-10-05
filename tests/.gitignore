@@ -8,3 +8,10 @@ logs/
 
 # Hidden logs
 .logs/
+
+# Unit WS runtime artifacts
+units/works/unit-ws/.tasklogs/
+
+# Generic backend artifacts under tests
+**/.backend.out
+**/.backend.pid

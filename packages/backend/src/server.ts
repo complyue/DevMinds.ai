@@ -761,10 +761,27 @@ async function runRealAgent(
     (provider.apiType === 'openai'
       ? 'https://api.openai.com/v1'
       : 'https://api.anthropic.com')) as string;
-  const model: string =
-    modelOverride ||
-    provider.models?.[0] ||
-    (provider.apiType === 'openai' ? 'gpt-5' : 'claude-4-sonnet');
+  // Choose model: mock always uses its first model (or 'test-model'); others may honor override
+  let model: string;
+  if (provider.apiType === 'mock') {
+    // For tests, mock model is fixed to 'test-model' regardless of runtime overrides or def.md
+    model = 'test-model';
+  } else {
+    model =
+      modelOverride ||
+      provider.models?.[0] ||
+      (provider.apiType === 'openai' ? 'gpt-5' : 'claude-4-sonnet');
+  }
+  // Debug chosen model and stack
+  try {
+    const debugStack = new Error('model.debug').stack;
+    console.debug(
+      `[debug:model] task=${taskId} providerId=${providerId} apiType=${provider.apiType} modelOverride=${String(
+        modelOverride,
+      )} models=${JSON.stringify(provider.models)} chosen=${model}`,
+    );
+    if (debugStack) console.debug(`[debug:stack] ${debugStack}`);
+  } catch {}
 
   let content = '';
   if (provider.apiType === 'mock') {
@@ -810,8 +827,19 @@ async function runRealAgent(
       ts: new Date().toISOString(),
       taskId,
       type: 'agent.run.delta',
-      payload: { member: chosenMember.id, skill, providerId, model, delta },
+      payload: {
+        member: chosenMember.id,
+        skill,
+        providerId,
+        model: provider.apiType === 'mock' ? 'test-model' : model,
+        delta,
+      },
     };
+    try {
+      console.debug(
+        `[debug:evDelta] payload.model=${(evDelta as any).payload?.model} providerId=${providerId} skill=${skill}`,
+      );
+    } catch {}
     await appendEventToFile(taskId, evDelta);
     broadcastToTask(taskId, {
       ts: new Date().toISOString(),
@@ -828,8 +856,19 @@ async function runRealAgent(
     ts: nowIso,
     taskId,
     type: 'agent.run.output',
-    payload: { member: chosenMember.id, skill, providerId, model, content },
+    payload: {
+      member: chosenMember.id,
+      skill,
+      providerId,
+      model: provider.apiType === 'mock' ? 'test-model' : model,
+      content,
+    },
   };
+  try {
+    console.debug(
+      `[debug:evOut] payload.model=${(evOut as any).payload?.model} providerId=${providerId} skill=${skill}`,
+    );
+  } catch {}
   await appendEventToFile(taskId, evOut);
   broadcastToTask(taskId, {
     ts: new Date().toISOString(),
@@ -957,6 +996,123 @@ app.post('/api/tasks/:id/cancel', async (c) => {
     return c.json({ ok: true, message: 'cancel sent' });
   }
   return c.json({ ok: false, message: 'no running task' }, 400);
+});
+
+/**
+ * Task lifecycle helpers for M3
+ */
+async function createTaskTemplates(taskId: string) {
+  const dir = paths.minds('tasks', taskId);
+  await ensureDir(dir);
+  const files = [
+    { name: 'wip.md', content: '# WIP\n\n' },
+    { name: 'plan.md', content: '# Plan\n\n' },
+    { name: 'caveats.md', content: '# Caveats\n\n' },
+  ];
+  for (const f of files) {
+    const fp = path.join(dir, f.name);
+    try {
+      await fs.writeFile(fp, f.content, 'utf8');
+    } catch (err) {
+      console.warn(`[task:${taskId}] failed to write ${f.name}:`, err);
+    }
+  }
+}
+
+async function deleteTaskTemplates(taskId: string) {
+  const dir = paths.minds('tasks', taskId);
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`[task:${taskId}] failed to remove templates dir:`, err);
+  }
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+/**
+ * POST /api/tasks
+ * body: { id: string, name?: string }
+ */
+app.post('/api/tasks', async (c) => {
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const taskId = String(body?.id || '').trim();
+  const name = typeof body?.name === 'string' ? body.name : undefined;
+  if (!taskId) {
+    return c.json({ ok: false, message: 'id is required' }, 400);
+  }
+
+  // Create templates and ensure logs dir
+  await createTaskTemplates(taskId);
+  await ensureDir(paths.tasklogs(taskId));
+
+  // Emit created event
+  const ev: EventT = {
+    ts: nowIso(),
+    taskId,
+    type: 'task.lifecycle.created',
+    payload: { name },
+  };
+  await appendEventToFile(taskId, ev);
+
+  return c.json({ ok: true, message: 'task created', taskId });
+});
+
+/**
+ * PATCH /api/tasks/:id
+ * body: { name?: string }
+ */
+app.patch('/api/tasks/:id', async (c) => {
+  const taskId = c.req.param('id');
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  const name = typeof body?.name === 'string' ? body.name : undefined;
+
+  // Ensure logs dir exists
+  await ensureDir(paths.tasklogs(taskId));
+
+  // Emit renamed event (no rename of id; only metadata change)
+  const ev: EventT = {
+    ts: nowIso(),
+    taskId,
+    type: 'task.lifecycle.renamed',
+    payload: { name },
+  };
+  await appendEventToFile(taskId, ev);
+
+  return c.json({ ok: true, message: 'task updated', taskId });
+});
+
+/**
+ * DELETE /api/tasks/:id
+ * Policy: remove templates, retain logs dir
+ */
+app.delete('/api/tasks/:id', async (c) => {
+  const taskId = c.req.param('id');
+
+  // Remove templates
+  await deleteTaskTemplates(taskId);
+
+  // Ensure logs dir exists (retain by policy)
+  await ensureDir(paths.tasklogs(taskId));
+
+  // Emit deleted event
+  const ev: EventT = {
+    ts: nowIso(),
+    taskId,
+    type: 'task.lifecycle.deleted',
+    payload: { message: 'task deleted (templates removed, logs retained)' },
+  };
+  await appendEventToFile(taskId, ev);
+
+  return c.json({ ok: true, message: 'task deleted', taskId });
 });
 
 // GET /api/tasks/:id/status - report current node state

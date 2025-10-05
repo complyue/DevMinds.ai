@@ -27,6 +27,7 @@
   - GET /api/providers - Provider 配置，安全隐藏密钥
   - POST /api/providers/test - 连通性测试（支持环境变量配置）
   - WebSocket /ws - 实时连接 + 基于文件尾随的事件广播
+  - M3 任务生命周期 API：POST /api/tasks（创建模板与事件）、PATCH /api/tasks/:id（重命名事件）、DELETE /api/tasks/:id（移除模板、保留日志目录）
 - **配置系统**: Provider 配置
   - 使用 `apiKeyEnvVar` 替代直接配置 API Key，提升安全性
   - 后端正确处理环境变量读取和连通性测试
@@ -45,12 +46,12 @@
     - 新增：取消接口 POST /api/tasks/:id/cancel，后端通过 AbortController 中断协程，事件 agent.run.cancelled
   - 前端实时接收并显示新事件，连接状态指示（前端已改为 /ws/:taskId）
   - 支持多客户端同时连接，错误时前端重连
-- **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件
+- **测试数据**: DEMO 任务及子任务完整示例，包含实时测试事件；测试统一使用 mock 模型 test-model；新增启动/停止后端辅助脚本（tests/cases/\_helpers/start-backend-in-ws.sh、stop-backend.sh，含端口清理）
 
 ### TDD 验证结果（摘要）
 
 - 全部基础用例通过：workspace_init、task_lifecycle、conversation_round、subtask_tree、error_handling
-- 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
+- 场景测试（Case Tests）：run-prompt-flow（tests/cases/run-prompt-flow.sh）、task_lifecycle（tests/cases/task_lifecycle.sh）通过；总入口 scripts/run-case-tests.sh 可一键运行全部场景
 - 详细说明：tests/units/results.md、tests/cases/results.md；计划：tests/stories/results.md
 
 ### 下一步
@@ -58,6 +59,7 @@
 **注意遵循 TDD 原则，E2E测试设计先行，以端到端测试驱动业务功能开发**
 
 [x] **M2 交互功能开发**（已完成，详见 tests/cases/results.md）
+[/] **M3 任务生命周期与模板初始化**（进行中：后端 API 已实现，模板/事件落盘与测试通过；索引与协作待做）
 
 ### M3 目标（草案）
 
@@ -118,5 +120,6 @@
   - curl -X POST http://localhost:5175/api/tasks/DEMO/cancel
   - curl "http://localhost:5175/api/tasks/DEMO/events?limit=10"
 - 场景测试:
-  - 单场景：bash tests/cases/run-prompt-flow.sh；bash tests/cases/cancel-flow.sh；bash tests/cases/delta-flow.sh；bash tests/cases/ws-reconnect-flow.sh；bash tests/cases/tool-cancel-flow.sh；bash tests/cases/events-pagination-flow.sh
+  - 单场景：bash tests/cases/run-prompt-flow.sh；bash tests/cases/cancel-flow.sh；bash tests/cases/delta-flow.sh；bash tests/cases/ws-reconnect-flow.sh；bash tests/cases/tool-cancel-flow.sh；bash tests/cases/events-pagination-flow.sh；bash tests/cases/task_lifecycle.sh
   - 全部场景：bash scripts/run-case-tests.sh
+- 辅助脚本：bash tests/cases/\_helpers/start-backend-in-ws.sh；bash tests/cases/\_helpers/stop-backend.sh

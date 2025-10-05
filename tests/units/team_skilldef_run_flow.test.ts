@@ -36,6 +36,11 @@ async function poll<T>(fn: () => Promise<T>, pred: (v: T) => boolean, timeoutMs 
 async function ensureDir(p: string) { await fs.mkdir(p, { recursive: true }).catch(() => {}); }
 
 beforeAll(async () => {
+  // Clean previous artifacts to ensure fresh run
+  try { await fs.rm(minds('tasks', TASK), { recursive: true, force: true }); } catch {}
+  try { await fs.rm(minds('skills', 'coding'), { recursive: true, force: true }); } catch {}
+  try { await fs.rm(tasklogs(TASK), { recursive: true, force: true }); } catch {}
+
   // Register mock provider handler for tests
   registerProvider('mock', async ({ provider, model, prompt }) => {
     return `mock:${model}:${(prompt || '').slice(0, 20)}`;
