@@ -1,3 +1,7 @@
+# macOS garbage
+.DS_Store
+._*
+
 # IDE (do manually track what needed)
 .codebuddy
 .trae
