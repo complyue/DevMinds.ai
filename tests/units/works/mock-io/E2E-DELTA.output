@@ -1,4 +1,0 @@
-mock:long:E2E-DELTA
-Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-This stream is intentionally long to produce many agent.run.delta events.
-${'chunk '.repeat(2000)}

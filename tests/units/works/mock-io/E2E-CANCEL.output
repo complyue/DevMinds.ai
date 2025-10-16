@@ -1,3 +1,0 @@
-mock:long:E2E-CANCEL
-Cancelling window should be large enough; produce long streaming content.
-${'piece '.repeat(2000)}
