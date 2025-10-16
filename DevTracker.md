@@ -11,7 +11,7 @@
 - [设计原则（第一性）](./design/DesignPrinciples.md)
 - [软件功能架构设计](./design/Architecture.md)
 - [运行时工作区结构设计](./design/WorkspaceStructure.md)
-- [Web 组件与路由映射](./design/WebUIMapping.md)
+- [Web 组件与路由映射](./design/AgentUI_Mapping.md)
 - [后端 API/WS 契约草案](./design/API_WS_Contracts.md)
 - [Opencode 复用计划](./design/OpencodeReusePlan.md)
 

@@ -92,16 +92,17 @@ workspace-root/
 - 原子写：采用临时文件写入后 rename 覆盖，尽量避免中断导致的半成品
 - 最小互斥：进程内互斥或队列即可；不处理跨进程锁（由“单进程单工作区”保障）
 
-## 6. WebUI（H5 复刻 opencode 的 TUI）映射
+## 6. WebUI（参考 agent-ui 组件与布局）映射
 
-- 任务树：
-  - 左侧展示任务树（含多级子任务）；节点点击展开显示轮次列表
-- 对话过程：
-  - 右侧为线性消息/事件流，按时间顺序渲染
-  - 支持 Markdown 渲染、代码高亮、diff/patch 内嵌视图
-  - 提供跳转至对应 .tasklogs 行的便捷链接（用于定位原始事件）
-- 概览优先：
-  - 默认读取 wip.md 展示任务摘要；需要细节时再定位到原始事件
+- 布局（三栏）：
+  - 左：任务树（含多级子任务，懒加载展开）
+  - 中：事件流（ConversationStream，按时间顺序渲染，支持按 spanId/parentSpanId 折叠）
+  - 右：WIP 摘要（渲染 .minds/tasks/{taskId}/wip.md）
+- 渲染能力：
+  - 支持 Markdown、代码高亮、diff/patch 内嵌视图
+  - 可跳转到 .tasklogs 对应 JSONL 行（便于定位原始事件）
+- 读取优先：
+  - 默认展示 wip.md 摘要；需要细节时再回放 /api/tasks/:id/events 与订阅 /ws/:taskId（WS 使用 Sec-WebSocket-Protocol 子协议承载 Bearer）
 
 ## 7. Provider 配置（YAML，仅手工 + Agent 辅助）
 
