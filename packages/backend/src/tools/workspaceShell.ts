@@ -37,10 +37,10 @@ export async function runSafe(
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d) => {
+    child.stdout.on('data', (d: Buffer) => {
       stdout += d.toString();
     });
-    child.stderr.on('data', (d) => {
+    child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
     });
 
@@ -51,11 +51,11 @@ export async function runSafe(
       reject(new Error('Command timed out'));
     }, timeout);
 
-    child.on('error', (err) => {
+    child.on('error', (err: Error) => {
       clearTimeout(timer);
       reject(err);
     });
-    child.on('close', (code) => {
+    child.on('close', (code: number | null) => {
       clearTimeout(timer);
       // truncate outputs for safety
       const limit = 10 * 1024;

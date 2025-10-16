@@ -12,8 +12,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "1.13.8",
-    "hono": "4.7.10",
     "js-yaml": "^4.1.0",
     "ws": "8.18.0",
     "zod": "3.23.8"

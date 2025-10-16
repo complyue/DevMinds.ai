@@ -6,7 +6,7 @@ import {
 } from './workspaceFs.js';
 
 function arg(name: string, def?: string) {
-  const a = process.argv.find((v) => v.startsWith(`--${name}=`));
+  const a = process.argv.find((v: string) => v.startsWith(`--${name}=`));
   return a ? a.split('=')[1] : def;
 }
 

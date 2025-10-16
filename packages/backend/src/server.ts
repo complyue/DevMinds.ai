@@ -1,21 +1,50 @@
-import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
+/**
+ * MiniApp: minimal router to replace Hono with Node.js http while keeping existing route handlers.
+ * - Supports app.get/post/patch/delete(path, handler)
+ * - Path params like /api/tasks/:id/...
+ * - Context c: c.req.param(name), c.req.url, c.req.json(); c.json(data, status?)
+ * - Global Bearer token auth for /api/*
+ */
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { FSWatcher, Dirent } from 'fs';
+import { getToken, checkWsAuth } from './core/auth.js';
+import { MiniApp } from './core/miniapp.js';
+
+const DEVMINDS_AUTH_KEY = getToken();
 import { z } from 'zod';
 import { createServer } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { promises as fs } from 'fs';
+import { watch } from 'fs';
 import path from 'path';
 import url from 'url';
-import { watch } from 'fs';
+import { Buffer } from 'buffer';
 import * as yaml from 'js-yaml';
 import './providers/defaults.js';
 import './providers/hooks.js';
 import { callProvider } from './providers/registry.js';
 import { ToolRegistry } from './tools/registry.js';
+import {
+  loadProviderTemplate,
+  loadRuntimeProviderConfig,
+  mergeProviderConfigs,
+} from './core/providers.js';
+import { createAgentRunners } from './core/agent.js';
+import {
+  configureEvents,
+  monitorEventFile as evMonitorEventFile,
+  fileWatchers as evFileWatchers,
+  filePositions as evFilePositions,
+  appendEventToFile as evAppendEventToFile,
+} from './core/events.js';
+import { waitForAnswer, handleEventBusiness } from './core/events-business.js';
 
-const app = new Hono();
+const app = new MiniApp();
 
-// Get __dirname equivalent in ES modules
+/**
+ * Get __dirname equivalent in ES modules
+ * (uses node:url and node:path)
+ */
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -37,77 +66,10 @@ async function ensureDir(p: string) {
 /**
  * Load built-in provider template from YAML.
  */
-async function loadProviderTemplate() {
-  const templatePath = path.join(__dirname, '../config/known-providers.yaml');
-  try {
-    if (await fileExists(templatePath)) {
-      const yamlContent = await readText(templatePath);
-      const cfg = yaml.load(yamlContent) as any;
-      // Ensure mock provider exists even when YAML is present
-      if (!cfg?.providers) cfg.providers = {};
-      if (!cfg.providers.mock) {
-        cfg.providers.mock = {
-          name: 'MockLLM',
-          apiType: 'mock',
-          baseUrl: '',
-          models: ['test-model'],
-          apiKeyEnvVar: 'DEVMINDS_MOCK_DIR',
-        };
-      }
-      return cfg;
-    }
-  } catch (error) {
-    console.warn('Failed to load provider template:', error);
-  }
-
-  // Fallback to minimal template if YAML loading fails
-  return {
-    providers: {
-      openai: {
-        name: 'OpenAI',
-        apiType: 'openai',
-        baseUrl: 'https://api.openai.com/v1',
-        models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'],
-        apiKeyEnvVar: 'OPENAI_API_KEY',
-      },
-      anthropic: {
-        name: 'Anthropic',
-        apiType: 'anthropic',
-        baseUrl: 'https://api.anthropic.com',
-        models: ['claude-4-sonnet'],
-        apiKeyEnvVar: 'ANTHROPIC_AUTH_TOKEN',
-      },
-      mock: {
-        name: 'MockLLM',
-        apiType: 'mock',
-        baseUrl: '',
-        models: ['test-model'],
-        apiKeyEnvVar: 'DEVMINDS_MOCK_DIR', // points to a local IO directory for tests
-      },
-    },
-  };
-}
 
 /**
  * Load runtime provider config from .minds/provider.yaml if present.
  */
-async function loadRuntimeProviderConfig() {
-  const runtimePath = paths.minds('provider.yaml');
-  try {
-    if (await fileExists(runtimePath)) {
-      const yamlContent = await readText(runtimePath);
-      if (yamlContent && yamlContent.trim().length > 0) {
-        const doc = yaml.load(yamlContent) as any;
-        if (doc && typeof doc === 'object') {
-          return doc;
-        }
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to load runtime provider config:', error);
-  }
-  return null;
-}
 
 /**
  * Deep merge of provider configs: runtime overrides built-in.
@@ -115,40 +77,6 @@ async function loadRuntimeProviderConfig() {
  * - for providers map, merges each provider object
  * - for arrays (e.g., models), uses runtime value if provided, otherwise built-in
  */
-function mergeProviderConfigs(baseCfg: any, runtimeCfg: any) {
-  if (!runtimeCfg) return { merged: baseCfg, hadRuntime: false };
-
-  const isObject = (v: any) => v && typeof v === 'object' && !Array.isArray(v);
-
-  const merge = (a: any, b: any): any => {
-    if (Array.isArray(a) || Array.isArray(b)) {
-      return b !== undefined ? b : a;
-    }
-    if (isObject(a) && isObject(b)) {
-      const out: any = { ...a };
-      for (const k of Object.keys(b)) {
-        out[k] = merge(a[k], b[k]);
-      }
-      return out;
-    }
-    return b !== undefined ? b : a;
-  };
-
-  // Ensure providers maps exist
-  const baseProviders = baseCfg?.providers && isObject(baseCfg.providers) ? baseCfg.providers : {};
-  const runtimeProviders =
-    runtimeCfg?.providers && isObject(runtimeCfg.providers) ? runtimeCfg.providers : {};
-
-  const mergedProviders: any = { ...baseProviders };
-  for (const pid of Object.keys(runtimeProviders)) {
-    mergedProviders[pid] = merge(baseProviders[pid], runtimeProviders[pid]);
-  }
-
-  const mergedTop = merge(baseCfg, runtimeCfg);
-  mergedTop.providers = mergedProviders;
-
-  return { merged: mergedTop, hadRuntime: true };
-}
 
 // Helpers
 async function fileExists(p: string) {
@@ -299,8 +227,8 @@ app.get('/api/tasks/:id/tree', async (c) => {
   const children: any[] = [];
   if (await fileExists(subtasksDir)) {
     const subIds = (await fs.readdir(subtasksDir, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
+      .filter((d: Dirent) => d.isDirectory())
+      .map((d: Dirent) => d.name);
     for (const sid of subIds) {
       children.push({ id: sid, children: [] });
     }
@@ -390,36 +318,8 @@ app.get('/api/tasks/:id/events', async (c) => {
  */
 
 // HTTP + WS server
-const httpServer = createServer((req, res) => {
-  // Delegate to Hono
-  const handler = app.fetch as any;
-  const urlStr = req.url ? `http://localhost${req.url}` : 'http://localhost/';
-  const request = new Request(urlStr, {
-    method: req.method,
-    headers: req.headers as any,
-    body: ['GET', 'HEAD'].includes(req.method ?? '') ? undefined : (req as any),
-    duplex: ['GET', 'HEAD'].includes(req.method ?? '') ? undefined : 'half',
-  } as RequestInit);
-  handler(request)
-    .then((r: Response) => {
-      res.writeHead(r.status, Object.fromEntries(r.headers as any));
-      r.body
-        ?.pipeTo(
-          new WritableStream({
-            write(chunk) {
-              res.write(Buffer.from(chunk));
-            },
-            close() {
-              res.end();
-            },
-          }) as any,
-        )
-        .catch(() => res.end());
-    })
-    .catch(() => {
-      res.statusCode = 500;
-      res.end('internal error');
-    });
+const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+  app.handle(req, res, DEVMINDS_AUTH_KEY);
 });
 
 const wss = new WebSocketServer({ server: httpServer });
@@ -462,6 +362,7 @@ function broadcastToTask(taskId: string, message: any) {
   }
 }
 
+configureEvents({ paths, broadcaster: broadcastToTask });
 // Ensure the task is in "follow" mode by watching event files
 async function ensureFollow(taskId: string) {
   const node = getOrCreateTaskNode(taskId);
@@ -479,9 +380,10 @@ async function ensureFollow(taskId: string) {
       if (f.startsWith('events-') && f.endsWith('.jsonl')) {
         const fp = path.join(taskDir, f);
         if (!node.watchers.has(fp)) {
-          await monitorEventFile(fp, taskId); // installs a watcher if not already
+          await evMonitorEventFile(fp, taskId); // installs a watcher if not already
           // monitorEventFile uses global maps; we still track presence at node-level by reading global fileWatchers
-          node.watchers.set(fp, fileWatchers.get(fp));
+          const fw = fileWatchers.get(fp);
+          if (fw) node.watchers.set(fp, fw);
         }
       }
     }
@@ -492,8 +394,8 @@ async function ensureFollow(taskId: string) {
 }
 
 // File monitoring for real-time event broadcasting
-const fileWatchers = new Map<string, any>();
-const filePositions = new Map<string, number>();
+const fileWatchers = evFileWatchers;
+const filePositions = evFilePositions;
 
 function stopAllWatchersForTask(taskId: string) {
   const node = taskNodes.get(taskId);
@@ -541,7 +443,7 @@ async function monitorEventFile(filePath: string, taskId: string) {
     const stats = await fs.stat(filePath);
     filePositions.set(filePath, stats.size);
 
-    const watcher = watch(filePath, async (eventType) => {
+    const watcher = watch(filePath, async (eventType: string) => {
       if (eventType === 'change') {
         try {
           const currentStats = await fs.stat(filePath);
@@ -554,7 +456,7 @@ async function monitorEventFile(filePath: string, taskId: string) {
             await fileHandle.read(buffer, 0, buffer.length, lastPosition);
             await fileHandle.close();
 
-            const newContent = buffer.toString('utf8');
+            const newContent = Buffer.from(buffer).toString('utf8');
             const newLines = newContent.split(/\r?\n/).filter(Boolean);
 
             // Parse and broadcast new events
@@ -609,7 +511,7 @@ async function initializeFileMonitoring() {
           for (const file of files) {
             if (file.startsWith('events-') && file.endsWith('.jsonl')) {
               const filePath = path.join(taskPath, file);
-              await monitorEventFile(filePath, taskId);
+              await evMonitorEventFile(filePath, taskId);
             }
           }
         } catch (err) {
@@ -626,8 +528,17 @@ async function initializeFileMonitoring() {
  * WebSocket connection handling
  * Route: /ws/:taskId
  */
-wss.on('connection', (ws: WebSocket, req: any) => {
+wss.on('connection', (ws: WebSocket, req: IncomingMessage & { url?: string; headers?: any }) => {
   try {
+    // WS Bearer via Sec-WebSocket-Protocol: expect ['devminds','bearer.<token>']
+    const protoRaw = String(req?.headers?.['sec-websocket-protocol'] || '');
+    if (!checkWsAuth(protoRaw, DEVMINDS_AUTH_KEY)) {
+      try {
+        ws.close(1008, 'invalid token');
+      } catch {}
+      return;
+    }
+
     const reqUrl = new URL(req?.url || '/', 'http://localhost');
     const parts = reqUrl.pathname.split('/').filter(Boolean); // ['ws', ':taskId']
     if (parts[0] !== 'ws' || parts.length < 2) {
@@ -689,100 +600,6 @@ wss.on('connection', (ws: WebSocket, req: any) => {
         console.warn('[ws] append message failed:', e);
       }
     });
-
-    // Inbound control channel: accept only event-driven control messages
-    ws.on('message', async (raw: any) => {
-      try {
-        const txt =
-          typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf8') : '';
-        if (!txt) return;
-        const msg = JSON.parse(txt);
-        // WS no longer accepts control semantics; append-only is handled by the other handler.
-        // Ignore all control messages per "event-stream-only transport" principle.
-        return;
-
-        const now = new Date().toISOString();
-
-        // agent.ask.request
-        if (msg.type === 'agent.ask.request') {
-          const question = String(msg?.payload?.question ?? '').slice(0, 2000);
-          const ev: EventT = { ts: now, taskId, type: 'agent.ask.request', payload: { question } };
-          await appendEventToFile(taskId, ev);
-          broadcastToTask(taskId, {
-            ts: new Date().toISOString(),
-            type: 'message.appended',
-            payload: ev,
-          });
-          return;
-        }
-
-        // agent.ask.response
-        if (msg.type === 'agent.ask.response') {
-          const answer = String(msg?.payload?.answer ?? '').slice(0, 4000);
-          const ev: EventT = { ts: now, taskId, type: 'agent.ask.response', payload: { answer } };
-          await appendEventToFile(taskId, ev);
-          broadcastToTask(taskId, {
-            ts: new Date().toISOString(),
-            type: 'message.appended',
-            payload: ev,
-          });
-          return;
-        }
-
-        // agent.tool.request -> ToolRegistry execution -> agent.tool.result
-        if (msg.type === 'agent.tool.request') {
-          const name = String(msg?.payload?.name || '').slice(0, 128);
-          const args =
-            msg?.payload?.args && typeof msg.payload.args === 'object' ? msg.payload.args : {};
-          if (!name) throw new Error('tool name required');
-
-          const evReq: EventT = {
-            ts: now,
-            taskId,
-            type: 'agent.tool.request',
-            payload: { name, args },
-          };
-          await appendEventToFile(taskId, evReq);
-          broadcastToTask(taskId, {
-            ts: new Date().toISOString(),
-            type: 'message.appended',
-            payload: evReq,
-          });
-
-          try {
-            const result = await toolReg.call(name, args);
-            const evRes: EventT = {
-              ts: new Date().toISOString(),
-              taskId,
-              type: 'agent.tool.result',
-              payload: { name, ok: true, result },
-            };
-            await appendEventToFile(taskId, evRes);
-            broadcastToTask(taskId, {
-              ts: new Date().toISOString(),
-              type: 'message.appended',
-              payload: evRes,
-            });
-          } catch (err: any) {
-            const evErr: EventT = {
-              ts: new Date().toISOString(),
-              taskId,
-              type: 'agent.tool.result',
-              payload: { name, ok: false, error: String(err?.message || err) },
-            };
-            await appendEventToFile(taskId, evErr);
-            broadcastToTask(taskId, {
-              ts: new Date().toISOString(),
-              type: 'message.appended',
-              payload: evErr,
-            });
-          }
-          return;
-        }
-      } catch (e) {
-        console.warn('[ws:control] bad message or handler error:', e);
-      }
-    });
   } catch (err) {
     console.error('[ws] failed to handle connection:', err);
     try {
@@ -800,83 +617,13 @@ wss.on('connection', (ws: WebSocket, req: any) => {
 /**
  * M2: run state — start a simulated agent producer
  */
-// Atomic JSON write helper (tmp + rename) under .tasklogs
-async function atomicWriteJson(fp: string, obj: any) {
-  const tmp = fp + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(obj, null, 2), 'utf8');
-  await fs.rename(tmp, fp);
-}
-
-async function updateMeta(taskId: string, ev: EventT) {
-  const dir = paths.tasklogs(taskId);
-  await ensureDir(dir);
-  const metaPath = path.join(dir, 'meta.json');
-  let meta: any = {};
-  try {
-    if (await fileExists(metaPath)) {
-      const txt = await readText(metaPath);
-      if (txt && txt.trim()) meta = JSON.parse(txt);
-    }
-  } catch {}
-  // Initialize structure
-  meta.taskId = taskId;
-  meta.lastTs = ev.ts;
-  meta.counts = meta.counts && typeof meta.counts === 'object' ? meta.counts : {};
-  meta.counts[ev.type] = (meta.counts[ev.type] ?? 0) + 1;
-  // Optional recent types window (bounded)
-  const MAX_RECENT = 50;
-  const recent = Array.isArray(meta.recentTypes) ? meta.recentTypes : [];
-  recent.push(ev.type);
-  if (recent.length > MAX_RECENT) recent.splice(0, recent.length - MAX_RECENT);
-  meta.recentTypes = recent;
-  await atomicWriteJson(metaPath, meta);
-}
 
 async function appendEventToFile(taskId: string, ev: EventT) {
-  const day = ev.ts.slice(0, 10).replace(/-/g, '');
-  const dir = paths.tasklogs(taskId);
-  await ensureDir(dir);
-  const file = path.join(dir, `events-${day}.jsonl`);
-  const line = JSON.stringify(ev) + '\n';
-  await fs.appendFile(file, line, 'utf8');
-  // Update lightweight meta index incrementally
-  try {
-    await updateMeta(taskId, ev);
-  } catch (err) {
-    console.warn(`[meta:${taskId}] failed to update meta.json:`, err);
-  }
-  // Business interpretation hook (e.g., resolve ask-await by questionId)
+  await evAppendEventToFile(taskId, ev);
   try {
     handleEventBusiness(ev);
   } catch (e) {
     console.warn('[event-hook] handleEventBusiness failed:', e);
-  }
-}
-
-/**
- * AskAwaitRegistry: resolve ask.response(questionId) for awaiting agent coroutines
- * - waitForAnswer returns a Promise resolved when a matching agent.ask.response arrives
- * - handleEventBusiness interprets events post-persist to resolve waiters
- */
-const askWaiters = new Map<string, (ans: any) => void>();
-function waitForAnswer(questionId: string): Promise<any> {
-  return new Promise((resolve) => {
-    askWaiters.set(String(questionId), resolve);
-  });
-}
-function handleEventBusiness(ev: EventT) {
-  try {
-    if (ev.type === 'agent.ask.response') {
-      const qid =
-        (ev as any)?.payload?.questionId ?? (ev as any)?.payload?.qid ?? (ev as any)?.payload?.id;
-      if (qid && askWaiters.has(String(qid))) {
-        const resolve = askWaiters.get(String(qid))!;
-        askWaiters.delete(String(qid));
-        resolve((ev as any).payload);
-      }
-    }
-  } catch (err) {
-    console.warn('[ask-await] handleEventBusiness error:', err);
   }
 }
 
@@ -889,7 +636,7 @@ async function runRealAgent(
 ): Promise<void> {
   // Load merged provider config
   const template = await loadProviderTemplate();
-  const runtime = await loadRuntimeProviderConfig();
+  const runtime = await loadRuntimeProviderConfig(paths);
   const { merged } = mergeProviderConfigs(template, runtime);
 
   // Resolve member and skill via team.md, and provider via skill def.md
@@ -1138,6 +885,17 @@ async function runRealAgent(
   });
 }
 
+const { runRealAgent: agentRunReal, runAskAwaitAgent: agentRunAskAwait } = createAgentRunners({
+  paths,
+  fileExists,
+  readText,
+  appendEventToFile,
+  broadcastToTask,
+  waitForAnswer,
+  callProvider,
+  providers: { loadProviderTemplate, loadRuntimeProviderConfig, mergeProviderConfigs },
+});
+
 async function startRun(taskId: string, promptOverride?: string, awaitAsk?: boolean) {
   const node = getOrCreateTaskNode(taskId);
   if (node.running) return; // already running
@@ -1168,7 +926,7 @@ async function startRun(taskId: string, promptOverride?: string, awaitAsk?: bool
 
       // run agent once
       try {
-        await runRealAgent(taskId, promptOverride, awaitAsk, node.abortCtrl);
+        await agentRunReal(taskId, promptOverride, awaitAsk, node.abortCtrl);
       } catch (err: any) {
         const evErr: EventT = {
           ts: new Date().toISOString(),
@@ -1313,7 +1071,7 @@ app.post('/api/tasks/:id/run-ask', async (c) => {
   // fire-and-forget to keep minimal impact on existing startRun flow
   (async () => {
     try {
-      await runAskAwaitAgent(taskId);
+      await agentRunAskAwait(taskId);
     } catch (err) {
       const evErr: EventT = {
         ts: new Date().toISOString(),
@@ -1535,4 +1293,5 @@ app.get('/api/tasks/:id/status', async (c) => {
 const PORT = Number(process.env.PORT ?? 5175);
 httpServer.listen(PORT, () => {
   console.log(`[backend] listening on http://localhost:${PORT}`);
+  console.log(`[backend] bearer token = ${DEVMINDS_AUTH_KEY}`);
 });

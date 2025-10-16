@@ -2,8 +2,8 @@
  * Generic provider extension loader for tests or plugins.
  * Business code stays provider-agnostic; this only loads extra modules if specified.
  */
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import path from 'path';
+import { pathToFileURL } from 'url';
 
 const extra = process.env.DEV_PROVIDER_EXTRA;
 if (extra && typeof extra === 'string' && extra.trim().length > 0) {
