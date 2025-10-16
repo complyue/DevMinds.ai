@@ -1,8 +1,8 @@
-# DevMinds.ai Web 组件与路由映射（TUI → Web）
+# DevMinds.ai Web 组件与路由映射（agent-ui → DevMinds Web）
 
 目标
 
-- 将 TUI 的交互元素映射为 Web 组件，先实现“可视化事实”的只读模式。
+- 参考 ../agent-ui 的组件与布局进行适配，不引入 OpenAPI；先实现“可视化事实”的只读模式，通信沿用最小化 HTTP + WS。
 
 路由
 
@@ -23,7 +23,7 @@
 - 职责：渲染事件流（Markdown/代码/diff），支持按 spanId/parentSpanId 折叠
 - 数据源：
   - 初始：GET /api/tasks/:id/events?date=...
-  - 实时：WS /ws 订阅
+  - 实时：WS /ws/:taskId 订阅
 - 交互：
   - 展开/折叠工具调用
   - 跳转到原始 JSON（调试视图）

@@ -17,13 +17,13 @@
 ## 2. 总体架构与运行模式
 
 - 单进程、单工作区、前后端一体：
-  - 后端：Node.js + Fastify 提供 REST/WS/SSE、文件系统读写、LLM 适配、事件总线。
-  - 前端：React + Vite（H5 复刻 opencode TUI 的交互与信息结构）。
+  - 后端：Node.js + TypeScript 原生 http（HTTP）+ ws（WebSocket），提供最小化 REST/WS、文件系统读写、LLM 适配、事件总线（不引入 OpenAPI 层）。
+  - 前端：React + Vite（参考 ../agent-ui 的组件与布局，不引入 OpenAPI；保持最小化 HTTP + WS 通信）。
   - CLI：devminds 命令，启动 WebUI、执行任务、连接 agent 通信。
 - 进程边界：
   - 仅一个 workspace 根目录在进程中活跃；多工作区需多实例。
 - 安全：
-  - TOKEN 基础鉴权（env 指定或随机生成后输出到控制台）；CORS 白名单；最小可用权限。
+  - TOKEN 基础鉴权（env 指定或随机生成后输出到控制台）；同源访问（不启用 CORS）；前端从 localStorage 以 Bearer 传递；最小可用权限。
 
 ## 3. Agent 模型与交互
 
@@ -69,13 +69,13 @@
 
 ## 6. Web 服务与安全
 
-- Fastify 路由：
+- HTTP 路由（node:http 原生）：
   - /api/workspace, /api/tasks, /api/agent, /api/events (WS/SSE)
   - 注：provider/skillset/task-team 配置不暴露 HTTP 或 CLI；M3 通过内部 Agent 工具在 .minds/ 下读写
 - 鉴权：
-  - CLI：Bearer Token（启动生成或从 env 读取）
-  - Web 浏览器：基于会话的 Cookie 鉴权（未鉴权重定向到登录/鉴权页面；WS/SSE 连接继承会话 Cookie）
-  - 便捷直达：服务启动时在控制台打印带 token 的直达链接（例如 http://localhost:5173/?token=<TOKEN>）；首次点击将完成一次性鉴权并写入 session，后续访问依赖 session cookie
+  - 同源策略：不启用 CORS，前后端同源（开发通过 Vite 代理保持同源）
+  - 浏览器：token 存于 localStorage；HTTP 使用 Header: Authorization: Bearer <token>；WS 使用 Sec-WebSocket-Protocol（例如 'devminds', 'bearer.<token>'）
+  - CLI：仅访问工作区文件，不通过 Web 调用，无需鉴权
   - 请求级中间件校验；事件流通道也需校验
 - 事件流：
   - WS 为默认（实时双向、状态更丰富），SSE 作为降级选项（在极少数代理/受限环境下使用），暂不编码，实现留待未来扩展

@@ -7,7 +7,7 @@
 
 鉴权与会话
 
-- 会话来源：浏览器会话 Cookie 或启动 token（Header: Authorization: Bearer <token>）
+- 会话来源：浏览器 localStorage 中的 token（HTTP 用 Authorization: Bearer <token>；WS 使用 Sec-WebSocket-Protocol（例如 'devminds', 'bearer.<token>'））；严格同源（开发通过 Vite 代理保持同源）
 - 统一中间件校验，所有 REST/WS 接口均需通过
 
 基础数据结构
@@ -80,8 +80,8 @@ POST /api/providers/test
 
 WebSocket
 
-URL: /ws
-子协议：无（简化）
+URL: /ws/:taskId
+子协议：使用 Sec-WebSocket-Protocol（例如同时宣称 'devminds' 与 'bearer.<token>'），服务端从 sec-websocket-protocol 校验并回显选定的子协议
 消息方向与格式
 
 - 服务器 → 客户端：统一事件推送

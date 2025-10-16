@@ -20,7 +20,7 @@
 ### 当前进度摘要
 
 - **文档**: 设计原则、功能架构、工作区结构、API/WS 契约、Web 组件映射、TDD 用例完整
-- **后端**: Node.js + TypeScript + Hono + ws，完整实现 M1 只读接口 + 实时功能
+- **后端**: Node.js + TypeScript 原生 http + ws，完整实现 M1 只读接口 + 实时功能（WS 子协议承载 Bearer）
   - GET /api/tasks/:id/wip - 任务摘要，含修改时间
   - GET /api/tasks/:id/tree - 任务树结构，支持子任务层级
   - GET /api/tasks/:id/events - 事件流，支持跨日期范围和分页，含错误处理
@@ -72,6 +72,14 @@
 ### 下一步
 
 执行项列表（本周）：
+
+- [/] 优先：调研 agent-ui 实现细节，制定其 AI Chat 组件在 DevMinds 的复现方案（不引入 OpenAPI，尽量零重依赖）
+  - 输出物：
+    - 组件结构与依赖梳理（Next/shadcn/Radix/Tailwind/framer-motion 的使用点）
+    - DevMinds 适配方案（本地 UI 适配层、样式迁移策略、动画降级/子协议适配）
+    - 事件→消息映射规范（span 折叠、代码块、diff、tool 请求/结果渲染）
+    - 里程碑与风险（M1 只读、M2 交互、M3 动画/增强）
+  - 验收：design/AgentUI_Chat_Plan.md 文档；packages/webapp 提交最小 PoC（ChatBlankState 与消息列表静态渲染）
 
 - [/] 后端 M3 模板初始化与落盘规范
   - .minds/tasks/{taskId}/(wip|plan|caveats).md 原子初始化（tmp+rename），校验 repoRoot 包含路径

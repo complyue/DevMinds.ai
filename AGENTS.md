@@ -5,7 +5,7 @@
 ## 1. 仓库结构
 
 - packages/backend
-  - 技术栈：Node.js + TypeScript + Hono（HTTP）+ ws（WebSocket）
+  - 技术栈：Node.js + TypeScript 原生 http（HTTP）+ ws（WebSocket）
   - 主要文件：
     - src/server.ts：HTTP API、WS 服务、事件文件跟随（follow）、任务级状态管理（idle/follow）
     - src/evt.ts：轻量事件通道与 EventSink（发布/订阅、流式消费）
@@ -13,7 +13,7 @@
     - .minds/：任务 WIP 等工作区数据（例：.minds/tasks/{taskId}/wip.md）
     - .tasklogs/：事件存储（例：.tasklogs/{taskId}/events-YYYYMMDD.jsonl）
 - packages/webapp
-  - 技术栈：React + Vite + TypeScript
+  - 技术栈：React + Vite + TypeScript（参考 ../agent-ui 的组件与布局；不引入 OpenAPI）
   - 主要页面：
     - src/pages/TaskPage.tsx：三栏布局（任务树 / 事件流 / WIP 摘要），按 taskId 连接 /ws/:taskId
     - src/main.tsx：路由（/tasks/:taskId）
@@ -59,8 +59,9 @@
 - 左栏任务树：GET /api/tasks/:id/tree 读取 .tasklogs 层级构建树（不依赖 meta.json）
 - 右栏 WIP 摘要：GET /api/tasks/:id/wip 渲染 Markdown
 - Vite 代理（vite.config.ts）
-  - /api → http://localhost:5175
+  - /api → http://localhost:5175（严格同源，不启用 CORS）
   - /ws → ws://localhost:5175（支持 WS 透传）
+- 鉴权与设置：前端通过 localStorage 保存 token；所有 HTTP 请求加 Header: Authorization: Bearer <token>；WS 使用子协议 Sec-WebSocket-Protocol（例如 'devminds', 'bearer.<token>'）；提供“设置”页面读写 token。
 
 ## 5. Provider 配置与连通性
 
