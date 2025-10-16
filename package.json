@@ -4,8 +4,11 @@
   "scripts": {
     "build:backend": "pnpm --filter @devminds/backend build",
     "build:web": "pnpm --filter @devminds/webapp build",
+    "build:prod": "pnpm run build:backend && pnpm run build:web",
     "dev:backend": "pnpm --filter @devminds/backend dev",
+    "dev:single": "DEV_SINGLE=1 pnpm --filter @devminds/backend dev",
     "dev:web": "pnpm --filter @devminds/webapp dev",
+    "start:prod": "pnpm --filter @devminds/backend start",
     "format": "pnpm run format:manifests || true && pnpm run format:rootdocs || true && pnpm -r --parallel --workspace-concurrency=1 run format || true",
     "format:manifests": "sort-package-json package.json packages/*/package.json",
     "format:rootdocs": "scripts/format-root-docs.sh",

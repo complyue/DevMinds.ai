@@ -1,16 +1,20 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 
+const single = process.env.DEV_SINGLE === '1';
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: {
-      "/api": "http://localhost:5175",
-      "/ws": {
-        target: "ws://localhost:5175",
-        ws: true
-      }
-    }
+    proxy: single
+      ? undefined
+      : {
+          "/api": "http://localhost:5175",
+          "/ws": {
+            target: "ws://localhost:5175",
+            ws: true
+          }
+        }
   }
 })

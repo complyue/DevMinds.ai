@@ -4,7 +4,7 @@ import { Buffer } from 'buffer';
 export type HandlerFn = (c: any) => Promise<any> | any;
 
 /**
- * MiniApp: minimal router to replace Hono with Node.js http while keeping existing route handlers.
+ * MiniApp: minimal router
  * - Supports app.get/post/patch/delete(path, handler)
  * - Path params like /api/tasks/:id/...
  * - Context c: c.req.param(name), c.req.url, c.req.json(); c.json(data, status?)

@@ -1,5 +1,5 @@
 /**
- * MiniApp: minimal router to replace Hono with Node.js http while keeping existing route handlers.
+ * MiniApp: minimal router
  * - Supports app.get/post/patch/delete(path, handler)
  * - Path params like /api/tasks/:id/...
  * - Context c: c.req.param(name), c.req.url, c.req.json(); c.json(data, status?)
@@ -47,6 +47,91 @@ const app = new MiniApp();
  */
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Frontend dist directory (production static assets)
+const webappDist = path.resolve(__dirname, '../../webapp/dist');
+
+function getMimeType(fp: string): string {
+  const ext = path.extname(fp).toLowerCase();
+  switch (ext) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.js':
+      return 'application/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.map':
+      return 'application/json; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.ico':
+      return 'image/x-icon';
+    case '.wasm':
+      return 'application/wasm';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+async function tryServeStatic(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  try {
+    // Only handle non-API, non-WS paths here
+    const reqUrl = new URL(req.url || '/', 'http://localhost');
+    const pathname = decodeURIComponent(reqUrl.pathname || '/');
+
+    // Skip API and WS
+    if (pathname.startsWith('/api') || pathname.startsWith('/ws')) return false;
+
+    // Map URL to file in dist; directory or "" → index.html
+    let fp = path.join(webappDist, pathname);
+    let st: any = null;
+    try {
+      st = await fs.stat(fp);
+      if (st.isDirectory()) {
+        fp = path.join(fp, 'index.html');
+      }
+    } catch {
+      // Not found → SPA fallback to index.html
+      fp = path.join(webappDist, 'index.html');
+      try {
+        st = await fs.stat(fp);
+      } catch {
+        return false;
+      }
+    }
+
+    const data = await fs.readFile(fp);
+    res.statusCode = 200;
+    res.setHeader('Content-Type', getMimeType(fp));
+    res.end(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Single-port dev: lazy-create Vite in middlewareMode when DEV_SINGLE=1
+let viteDev: any = null;
+async function ensureViteDev(httpServer: import('http').Server) {
+  if (viteDev) return viteDev;
+  const vite = await import('vite');
+  viteDev = await vite.createServer({
+    root: path.resolve(__dirname, '../../webapp'),
+    server: {
+      middlewareMode: true,
+      hmr: { server: httpServer }
+    },
+    appType: 'spa',
+  });
+  return viteDev;
+}
 
 /**
  * Workspace root is the server process current working directory.
@@ -318,7 +403,27 @@ app.get('/api/tasks/:id/events', async (c) => {
  */
 
 // HTTP + WS server
-const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const reqUrl = new URL(req.url || '/', 'http://localhost');
+  const pathname = decodeURIComponent(reqUrl.pathname || '/');
+
+  if (process.env.DEV_SINGLE === '1') {
+    // Single-port dev: use Vite middleware for non-API/WS
+    if (!pathname.startsWith('/api') && !pathname.startsWith('/ws')) {
+      const v = await ensureViteDev(httpServer);
+      // Let Vite handle and fallback to 404 if unhandled
+      return v.middlewares(req as any, res as any, () => {
+        res.statusCode = 404;
+        res.end('Not found');
+      });
+    }
+  } else {
+    // Production/static preview: try static first
+    const served = await tryServeStatic(req, res);
+    if (served) return;
+  }
+
+  // Delegate to API/WS handlers
   app.handle(req, res, DEVMINDS_AUTH_KEY);
 });
 
